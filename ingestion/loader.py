@@ -59,12 +59,13 @@ _DDL: list[str] = [
         season_id         BIGINT      NOT NULL,
         team_id           BIGINT      NOT NULL,
         matchday          INTEGER     NOT NULL,
+        standing_type     VARCHAR     NOT NULL,   -- API 'type': TOTAL / HOME / AWAY
         stage             VARCHAR,
         group_name        VARCHAR,
         payload           JSON        NOT NULL,
         _source_file      VARCHAR,
         _loaded_at        TIMESTAMP,
-        PRIMARY KEY (competition_code, season_id, team_id, matchday)
+        PRIMARY KEY (competition_code, season_id, team_id, matchday, standing_type)
     );
     """,
 ]
@@ -148,13 +149,14 @@ class RawLoader:
         return len(rows)
 
     def load_standings(self, response: dict, competition_code: str, source_file: str) -> int:
-        """Explode the standings snapshot to one row per team.
+        """Explode the standings snapshot to one row per team per table type.
 
-        A standings response is a single snapshot at season.currentMatchday.
-        We keep only type == 'TOTAL' tables (the real league/group table);
-        HOME/AWAY splits are dropped because the natural key
-        (competition, season, team, matchday) does not include type and the
-        downstream fact_standings grain is team-per-matchday.
+        A standings response is a single snapshot at season.currentMatchday and
+        may carry several tables per snapshot: TOTAL and (mid-season) HOME/AWAY,
+        plus one table per group for a tournament. We land EVERY type the source
+        returns — raw is a faithful copy. The TOTAL-vs-HOME/AWAY decision is made
+        downstream in dbt (stg_standings), where it is explicit and documented,
+        not silently at ingest. That is why `standing_type` is part of the key.
         """
         now = datetime.now()
         season = response.get("season") or {}
@@ -165,13 +167,12 @@ class RawLoader:
 
         rows = []
         for entry in response.get("standings", []):
-            if entry.get("type") != "TOTAL":
-                continue
+            standing_type = entry.get("type")
             stage = entry.get("stage")
             group_name = entry.get("group")
             for line in entry.get("table", []):
                 team_id = line.get("team", {}).get("id")
-                if team_id is None or season_id is None:
+                if team_id is None or season_id is None or standing_type is None:
                     continue  # cannot form the natural key; skip defensively
                 rows.append(
                     (
@@ -179,6 +180,7 @@ class RawLoader:
                         int(season_id),
                         int(team_id),
                         int(matchday),
+                        standing_type,
                         stage,
                         group_name,
                         json.dumps(line),
@@ -190,10 +192,10 @@ class RawLoader:
         self.con.executemany(
             """
             INSERT INTO raw.standings
-                (competition_code, season_id, team_id, matchday,
+                (competition_code, season_id, team_id, matchday, standing_type,
                  stage, group_name, payload, _source_file, _loaded_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?::JSON, ?, ?)
-            ON CONFLICT (competition_code, season_id, team_id, matchday) DO UPDATE SET
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?::JSON, ?, ?)
+            ON CONFLICT (competition_code, season_id, team_id, matchday, standing_type) DO UPDATE SET
                 stage        = excluded.stage,
                 group_name   = excluded.group_name,
                 payload      = excluded.payload,
