@@ -1,34 +1,26 @@
--- Fact: league standings, DERIVED from match results (INCREMENTAL).
--- Grain: one row per (competition, season, team, matchday).
+-- League standings, one row per (competition, season, team, matchday), built
+-- incrementally.
 --
--- Why derived (not the API snapshot)
--- ----------------------------------
--- The standings endpoint returns a single "current" table. In the off-season it
--- reports last season's final numbers stamped with the new season/matchday 1 —
--- a contradiction. We instead COMPUTE each matchday's table from finished match
--- results, which is internally consistent and gives a real week-by-week
--- progression. The raw standings endpoint data still lands in raw.standings
--- (harmless), but nothing downstream depends on it any more.
+-- I derive these from match results rather than reading the standings endpoint.
+-- The endpoint only returns a single "current" table, and in the off-season it
+-- hands back last season's final numbers stamped with the new season at
+-- matchday 1, which is contradictory. Computing each matchday's table from
+-- finished results is internally consistent and gives a real week-by-week
+-- progression. The raw standings data still lands in raw.standings, but nothing
+-- here depends on it.
 --
--- Scope: LEAGUE competitions only, REGULAR_SEASON matchdays. The World Cup is
--- EXCLUDED by design (its group + knockout format does not yield a league
--- table this way); that exclusion is the `competition_type = 'LEAGUE'` +
--- `stage = 'REGULAR_SEASON'` filter below.
+-- Scope is the leagues only (REGULAR_SEASON). The World Cup is left out on
+-- purpose: its group + knockout format doesn't produce a league table this way.
+-- That's the competition_type = 'LEAGUE' and stage = 'REGULAR_SEASON' filter.
 --
--- Contribution rule: only matches with a definitive result (has_result =
--- FINISHED or AWARDED) contribute. SCHEDULED matches never count.
+-- Only matches with a definitive result count (has_result = FINISHED or
+-- AWARDED); scheduled matches don't. For a team at matchday N the measures are
+-- the cumulative record over every counting match with matchday <= N. Position
+-- tie-break is points, then goal difference, then goals for.
 --
--- For team T and matchday N, all measures are the CUMULATIVE record over every
--- contributing match with matchday <= N: played, won, drawn, lost, goals_for,
--- goals_against, goal_difference, points (3/1/0), and league position.
--- Tie-break for position: points DESC, then goal_difference DESC, then
--- goals_for DESC.
---
--- Incremental: delete+insert on standing_key. When new results land for a
--- season, that whole season is re-derived and its rows replaced — necessary
--- because a corrected early result cascades to every later matchday's
--- cumulative totals. See the header of the previous phase / README for the
--- strategy rationale.
+-- Incremental strategy is delete+insert on standing_key. When new results land
+-- for a season the whole season is re-derived and its rows replaced, because a
+-- corrected early result changes every later matchday's cumulative totals.
 
 {{ config(
     materialized = 'incremental',
@@ -50,13 +42,13 @@ with league_results as (
         f._loaded_at
     from {{ ref('fact_matches') }} f
     join {{ ref('dim_competitions') }} c using (competition_code)
-    where c.competition_type = 'LEAGUE'     -- excludes the World Cup
+    where c.competition_type = 'LEAGUE'     -- leaves out the World Cup
       and f.stage = 'REGULAR_SEASON'
       and f.has_result                       -- FINISHED or AWARDED only
 ),
 
 {% if is_incremental() %}
--- Re-derive only seasons that received new/changed results since the last run.
+-- Only re-derive seasons that got new or changed results since the last run.
 seasons_to_refresh as (
     select distinct competition_code, season_id
     from league_results
@@ -70,7 +62,7 @@ scoped as (
 scoped as (select * from league_results),
 {% endif %}
 
--- one row per team per contributing match (home and away perspectives)
+-- one row per team per counting match (home and away perspectives)
 team_match as (
     select competition_code, season_id, matchday, home_team_id as team_id,
            home_score_ft as gf, away_score_ft as ga, home_points as pts, _loaded_at
@@ -84,8 +76,8 @@ team_match as (
 teams_in_season as (select distinct competition_code, season_id, team_id from team_match),
 matchdays       as (select distinct competition_code, season_id, matchday from team_match),
 
--- every team x every matchday of its season (so a team gets a row at each
--- matchday even if a fixture was postponed — "games in hand" show correctly)
+-- every team crossed with every matchday of its season, so a team still gets a
+-- row at a matchday it didn't play (postponement), with games-in-hand showing
 scaffold as (
     select t.competition_code, t.season_id, t.team_id, m.matchday
     from teams_in_season t

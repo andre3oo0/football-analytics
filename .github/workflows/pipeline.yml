@@ -1,28 +1,24 @@
 name: football-data-pipeline
 
-# Scheduled + manual orchestration of the whole pipeline:
-#   ingest (live season)  ->  dbt build (run + test)  ->  docs
+# Runs the whole pipeline on a schedule and on demand:
+# ingest the live season, then dbt build (run + test), then generate docs.
 #
-# WHAT A RUN ACTUALLY DOES TONIGHT (honest framing)
-# -------------------------------------------------
-# The pipeline is complete and correct, and runs through the same path every
-# night. But the leagues are currently in the 2026/27 OFF-SEASON: a scheduled
-# pull today fetches fixtures that have no results yet, so fact_standings
-# (derived from finished matches) is legitimately EMPTY until the season kicks
-# off. Nothing is faked to hide this. Once 2026/27 begins, the identical
-# workflow starts producing real matchday standings with no code change.
-# Incremental behaviour is demonstrated locally against the backfilled,
-# completed 2024/25 season (see README) — NOT against live data, because no
-# live results exist yet.
+# A note on what a run actually does right now: the leagues are in the 2026/27
+# off-season, so a scheduled pull fetches fixtures with no results yet and
+# fact_standings (which is derived from finished matches) comes out empty until
+# the season starts. That's expected, not a bug, and the same workflow will
+# produce real standings once matches are played. The incremental behaviour is
+# shown locally against the completed 2024/25 season (see the README), since
+# there's no live result data to show it against yet.
 
 on:
   schedule:
-    # 06:00 UTC daily. Cheap: pulls only the current season (~18 requests) at
-    # ~8 req/min, well under the 10/min free-tier cap.
+    # 06:00 UTC daily. Only pulls the current season (~18 requests) at ~8/min,
+    # comfortably under the 10/min free-tier limit.
     - cron: "0 6 * * *"
   workflow_dispatch: {}   # manual "Run workflow" button
 
-# Never let two scheduled runs overlap — the DuckDB warehouse is single-writer.
+# Don't let two scheduled runs overlap; the DuckDB file is single-writer.
 concurrency:
   group: football-data-pipeline
   cancel-in-progress: false
@@ -34,8 +30,8 @@ jobs:
   run-pipeline:
     runs-on: ubuntu-latest
     env:
-      # Supplied by a GitHub repository SECRET. Never committed; GitHub masks it
-      # in logs; we never echo it. The ingestion code reads it from this env var.
+      # Comes from a GitHub repository secret. Not committed, never echoed, and
+      # GitHub masks it in logs. The ingestion code reads it from this env var.
       FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
 
     steps:
@@ -51,27 +47,25 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # ---------------------------------------------------------------------
-      # SEQUENTIAL, single-writer: each step is its own process that opens and
-      # closes the DuckDB file before the next step starts. Never two writers.
-      # ---------------------------------------------------------------------
+      # The steps below run one at a time, each as its own process that opens
+      # and closes the DuckDB file before the next starts, so there's never more
+      # than one writer.
 
       - name: Ingest live season (current 2026/27 leagues + World Cup)
-        # LIVE current season only (no --season): we deliberately do NOT re-pull
-        # the frozen, completed 2024/25 backfill on a schedule — it never
-        # changes, so re-fetching it nightly would waste API budget for nothing.
+        # Current season only (no --season). I don't re-pull the completed
+        # 2024/25 backfill on a schedule; it never changes, so fetching it every
+        # night would just waste API budget.
         #
-        # TLS: the client calls truststore.inject_into_ssl(), which uses the
-        # RUNNER's OS trust store. On ubuntu-latest that store holds the standard
-        # public CAs (no corporate root exists here), so verification is normal
-        # public-CA verification — exactly the graceful degradation intended.
-        # If this step connects and returns 200s, TLS in CI is proven.
+        # On TLS: the client calls truststore.inject_into_ssl(), which uses the
+        # runner's OS trust store. ubuntu-latest ships the normal public CAs and
+        # has no corporate root, so this is just ordinary public-CA verification.
+        # If this step connects and gets 200s, TLS in CI is fine.
         run: python -m ingestion.run --refresh
 
-      - name: dbt build (run models + run tests; FAIL LOUDLY)
+      - name: dbt build (run models and tests, fail on any failure)
         working-directory: dbt
-        # dbt build runs models and their tests in DAG order and exits non-zero
-        # if ANY test fails -> this step fails -> the job goes red. That is the
+        # dbt build runs each model then its tests in dependency order and exits
+        # non-zero if any test fails, which turns the job red. That's the whole
         # "fail loudly" guarantee.
         run: dbt build --profiles-dir .
 

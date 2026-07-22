@@ -1,7 +1,7 @@
--- Singular test: a World Cup KNOCKOUT match, once FINISHED, cannot be a draw
--- and must have a winner (extra time / penalties decide it). This catches
--- stage/score inconsistencies — e.g. a knockout row mislabelled, or a null
--- winner on a completed tie. Returns offending rows; fails if any exist.
+-- A World Cup knockout match, once finished, can't be a draw and must have a
+-- winner (extra time or penalties settle it). This catches stage/score
+-- inconsistencies, like a mislabelled knockout row or a null winner on a
+-- completed tie. Any rows returned mean the test failed.
 
 select
     f.match_id,

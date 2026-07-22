@@ -1,6 +1,6 @@
--- Singular test: a team's cumulative games played must never DECREASE as the
--- matchday increases. Guards the cumulative derivation against a regression
--- that would let later matchdays lose earlier results.
+-- A team's cumulative games played should never go down as the matchday
+-- increases. This guards the cumulative logic against a regression that would
+-- let a later matchday lose earlier results.
 
 with ordered as (
     select

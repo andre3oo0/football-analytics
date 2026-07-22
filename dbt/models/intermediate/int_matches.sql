@@ -1,6 +1,6 @@
--- Intermediate: match-level business logic (derivations that do not belong in
--- thin staging). All measures are null-safe: an unplayed match has null scores
--- and therefore null goals/points, never a fabricated 0.
+-- Match-level derivations that don't belong in thin staging. Everything is
+-- null-safe: an unplayed match has null scores, so its goals and points stay
+-- null rather than becoming a fake 0.
 
 with matches as (
     select * from {{ ref('stg_matches') }}
@@ -26,12 +26,11 @@ select
     home_score_ht,
     away_score_ht,
 
-    -- derived, null-safe measures
-    -- has_result = the match has a definitive outcome and therefore counts
-    -- toward standings. FINISHED is the normal case; AWARDED is an officially
-    -- decided result (e.g. a forfeit with an awarded scoreline) and must count
-    -- too — excluding it would make a league table wrong. SCHEDULED (and any
-    -- other not-yet-decided status) is excluded.
+    -- has_result means the match has a definitive outcome and should count
+    -- toward standings. FINISHED is the usual case; AWARDED is an officially
+    -- decided result (e.g. a forfeit with a set scoreline) and counts too,
+    -- otherwise a league table would come out wrong. Anything else (SCHEDULED,
+    -- postponed, ...) doesn't count.
     (status in ('FINISHED', 'AWARDED'))                     as has_result,
     home_score_ft + away_score_ft                           as total_goals_ft,
     case when winner = 'HOME_TEAM' then 3

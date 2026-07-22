@@ -1,418 +1,248 @@
-# ⚽ Football Data Pipeline — Analytics Engineering Portfolio
+# Football data pipeline
 
-An end-to-end **analytics engineering** project: ingest football data from a
-public REST API, land it raw in a local warehouse, and model it into a tested,
-documented star schema with dbt — orchestrated on a schedule via GitHub Actions.
+An end-to-end analytics engineering project. It pulls football data from a
+public API, lands it raw in a local warehouse, and models it into a tested,
+documented star schema with dbt, all wired up to run on a schedule in GitHub
+Actions.
 
-The point of this project is the **transformation, testing, documentation, and
-orchestration layers**, not the final report. The dimensional model, the dbt
-tests, and the "does it fail loudly?" question are the deliverable.
+The interesting part here is the transformation, testing, documentation and
+orchestration, not a dashboard at the end. The dimensional model, the dbt tests,
+and the question "does this fail loudly when the data is wrong?" are the point.
 
-> **Status:** ✅ Complete — all six build phases landed (ingestion → dbt star
-> schema → tests → docs → CI). See [Build phases](#build-phases).
+## Stack
 
----
+- Python 3.11+ for ingestion only
+- DuckDB as the warehouse (a single local `.duckdb` file)
+- dbt-duckdb for all transformation, testing and docs
+- GitHub Actions for scheduling
 
-## Architecture
+## How it fits together
 
 ```
 football-data.org API (REST v4, free tier: 10 req/min)
-        │
-        │  Python ingestion  ─ rate-limited (~8 req/min) + exponential backoff
-        ▼
-  data/raw/*.json           ─ every response cached to disk BEFORE loading
-        │                      (dev re-runs never re-hit the API)
-        ▼
-  DuckDB  ── raw schema      ─ idempotent load, no duplicates
-        │
-        │  dbt-duckdb
-        ▼
-  staging/       ─ 1:1 with raw; rename + cast only; materialized as views
-  intermediate/  ─ joins, dedup, business logic
-  marts/         ─ star schema; materialized as tables
-        │
-        ▼
-  dbt tests (generic + singular)  +  dbt docs (lineage DAG)
-        │
-        ▼
-  GitHub Actions ─ cron + manual; ingest → dbt run → dbt test; fails loudly
+        |
+        |  Python ingestion: rate-limited (~8/min) + backoff, cache to disk first
+        v
+  data/raw/*.json           every response cached before loading
+        |
+        v
+  DuckDB (raw schema)        idempotent upsert by natural key, no duplicates
+        |
+        |  dbt
+        v
+  staging/       1:1 with raw, rename + cast + unpack only (views)
+  intermediate/  joins, dedup, business logic (views)
+  marts/         star schema, dims + facts (tables)
+        |
+        v
+  dbt tests (generic + singular)  +  dbt docs (lineage)
+        |
+        v
+  GitHub Actions: cron + manual, ingest -> dbt build, red on any test failure
 ```
 
-### Data flow layers
-
-| Layer          | Tech           | Responsibility                                        |
-|----------------|----------------|-------------------------------------------------------|
-| Ingestion      | Python 3.11+   | Fetch, cache raw JSON, load DuckDB `raw` schema       |
-| Warehouse      | DuckDB         | Single local `.duckdb` file                           |
-| Staging        | dbt (views)    | Rename / cast only — stays thin                       |
-| Intermediate   | dbt (views)    | Joins, dedup, business logic                          |
-| Marts          | dbt (tables)   | Star schema (dims + facts)                            |
-| Orchestration  | GitHub Actions | Scheduled + manual pipeline runs                      |
-
----
+| Layer         | Tech           | What it does                                  |
+|---------------|----------------|-----------------------------------------------|
+| Ingestion     | Python 3.11+   | Fetch, cache raw JSON, load the `raw` schema  |
+| Warehouse     | DuckDB         | One local `.duckdb` file                      |
+| Staging       | dbt (views)    | Rename / cast / unpack only, stays thin       |
+| Intermediate  | dbt (views)    | Joins, dedup, business logic                  |
+| Marts         | dbt (tables)   | Star schema (dims + facts)                    |
+| Orchestration | GitHub Actions | Scheduled + manual runs                       |
 
 ## Data source
 
-[football-data.org](https://www.football-data.org/) REST API v4 (free tier).
+[football-data.org](https://www.football-data.org/) REST API v4, free tier.
 
-- **Auth:** API key sent as the `X-Auth-Token` header, read from the
-  `FOOTBALL_DATA_API_KEY` environment variable. Never hardcoded or committed.
-- **Rate limit:** free tier allows **10 requests/minute**. We throttle to
-  ~8 req/min with exponential backoff on HTTP 429 — an IP ban is impossible by
-  design.
-- **Caching:** every raw response is written to `data/raw/` as JSON *before*
-  loading, so development re-runs do not re-hit the API.
+- Auth is an API key sent as the `X-Auth-Token` header, read from the
+  `FOOTBALL_DATA_API_KEY` environment variable. It is never hardcoded or
+  committed.
+- The free tier allows 10 requests a minute, so the client throttles to about 8
+  a minute and backs off on HTTP 429. Getting IP-banned isn't really possible.
+- Every response is written to `data/raw/` as JSON before it's loaded, so
+  re-running locally doesn't hit the API again.
 
-### Competitions
+Competitions:
 
-| Code  | Competition            | Type       | Role in the project                       |
-|-------|------------------------|------------|-------------------------------------------|
-| PL    | Premier League         | LEAGUE     | Drives incremental + orchestration story  |
-| PD    | La Liga                | LEAGUE     | ″                                         |
-| BL1   | Bundesliga             | LEAGUE     | ″                                         |
-| SA    | Serie A                | LEAGUE     | ″                                         |
-| FL1   | Ligue 1                | LEAGUE     | ″                                         |
-| WC    | FIFA World Cup 2026    | TOURNAMENT | Report headline; static, has knockout stages |
+| Code | Competition         | Type       |
+|------|---------------------|------------|
+| PL   | Premier League      | LEAGUE     |
+| PD   | La Liga             | LEAGUE     |
+| BL1  | Bundesliga          | LEAGUE     |
+| SA   | Serie A             | LEAGUE     |
+| FL1  | Ligue 1             | LEAGUE     |
+| WC   | FIFA World Cup 2026 | TOURNAMENT |
 
-Endpoints per competition: `/competitions/{id}/teams`,
-`/competitions/{id}/matches`, `/competitions/{id}/standings`.
+Endpoints per competition: `/teams`, `/matches`, `/standings`.
 
-**Seasons:** the leagues are pulled for the live **2026/27** season (drives the
-incremental/orchestration story) plus one completed **2024/25** season
-(`--season 2024`), which supplies the finished results that `fact_standings` is
-derived from. Ingestion is season-aware, and cached per season.
+Seasons: the five leagues are pulled for the live 2026/27 season, plus one
+completed season (2024/25, via `--season 2024`). The completed season is what
+gives `fact_standings` real finished results to work from. Ingestion is
+season-aware and caches each season separately.
 
----
+### About the off-season
 
-## Dimensional model (target grain)
+Worth being upfront about: right now the leagues are in the 2026/27 off-season.
+Every league fixture is scheduled with no result yet, so a table built from
+finished matches is legitimately empty for the live season. That's exactly why I
+also backfilled the completed 2024/25 season, which is where the standings
+progression and the incremental behaviour are actually demonstrated. A scheduled
+run tonight ingests the live season, builds everything and passes its tests, but
+`fact_standings` stays empty until 2026/27 actually kicks off. The same pipeline
+produces real standings from that point on with no code change.
 
-- **dim_competitions** — one row per competition (with a `competition_type`
-  attribute: `LEAGUE` vs `TOURNAMENT`).
-- **dim_teams** — one row per team.
-- **dim_seasons** — one row per competition-season.
-- **fact_matches** — **one row per match across ALL competitions** (leagues and
-  World Cup share a single fact table). Includes a `stage` column
-  (`REGULAR_SEASON` for leagues; `GROUP_STAGE` / `LAST_16` / `QUARTER_FINALS` /
-  `SEMI_FINALS` / `FINAL` etc. for the WC). Scores are nullable.
-- **fact_standings** — one row per team per matchday snapshot, **derived by
-  cumulating finished match results** (not the standings endpoint); built
-  **incrementally**; LEAGUE competitions only (the WC is excluded by design).
+## Dimensional model
 
-> Design rationale (why this grain, why one fact table for both leagues and the
-> WC, why these tests) is written up in [Decisions](#decisions) below.
+- `dim_competitions`: one row per competition, with a `competition_type` of
+  LEAGUE or TOURNAMENT.
+- `dim_teams`: one row per team, unioned across the seasons ingested.
+- `dim_seasons`: one row per competition-season.
+- `fact_matches`: one row per match across every competition, leagues and the
+  World Cup in the same table. A `stage` column separates REGULAR_SEASON from
+  the World Cup rounds. Scores are nullable.
+- `fact_standings`: one row per team per matchday, derived by cumulating
+  finished match results (not the standings endpoint), built incrementally,
+  leagues only.
 
----
+Current row counts: `dim_competitions` 6, `dim_teams` 164, `dim_seasons` 11,
+`fact_matches` 3,608, `fact_standings` 3,504.
 
-## Decisions
+## Design decisions
 
-<!-- Each phase appends the decisions it made here, with the tradeoff and the
-     choice, so every design choice is defensible in an interview. -->
+The whole reason to write these down is so I can defend each one.
 
-### Phase 1 — scaffold
+**Idempotent ingestion means upsert by natural key, enforced by the table.**
+Each raw table declares its natural key as a PRIMARY KEY (`team_id`, `match_id`,
+and `(competition_code, season_id, team_id, matchday, standing_type)` for
+standings). Loads run `INSERT ... ON CONFLICT DO UPDATE`, so re-running never
+duplicates a row and a re-fetched match overwrites its old row. There's exactly
+one current row per key; I don't keep raw history.
 
-- **The repo lives in its own folder (`football-analytics/`), not directly on
-  the Desktop.** `git init` should never wrap the entire Desktop. This is the
-  repo root referred to as `/` throughout the spec.
-- **Dependencies are pinned in a single `requirements.txt`** (ingestion + dbt
-  together) rather than split files or a `pyproject.toml`. Tradeoff: a
-  `pyproject.toml` reads as more "modern packaging," but this project ships no
-  installable package — it is scripts + a dbt project. One commented
-  `requirements.txt` is the most readable, works with both `venv` and `uv`, and
-  keeps the CI install a one-liner.
-- **Raw JSON cache lives in `data/raw/`; the folder is tracked but its contents
-  are git-ignored** (`data/raw/*` + `!data/raw/.gitkeep`). This keeps the
-  directory structure visible in the repo without ever committing pulled data.
-- **The DuckDB file is a build artifact** (`*.duckdb` ignored) — the warehouse
-  is always rebuildable from raw JSON + dbt, so it never belongs in git.
+**Raw stores the key plus the untouched JSON payload, not flattened columns.**
+That keeps ingestion generic and hard to break when the API adds a field, and it
+pushes all the field-level work into dbt where it belongs. Staging then unpacks
+the JSON, one thin view per source, no joins or logic.
 
-### Phase 2 — ingestion
+**One `fact_matches` for both leagues and the World Cup.** The grain is the same
+(a match is a match) and most questions cross competitions. Splitting into
+separate fact tables would just force UNIONs. The `stage` column and the
+competition FK carry the distinction instead.
 
-- **Raw = the natural key + the untouched payload as JSON**, not a flattened
-  set of typed columns. Tradeoff: flattening in Python would make ingestion
-  brittle to any API field change and would smear interpretation into the EL
-  step. Landing the raw JSON keyed by its natural key keeps ingestion generic
-  ("land it, don't read it") and pushes *all* field-level rename/cast into dbt
-  staging — which is exactly where the spec wants that logic to live.
-- **Idempotency is enforced by a table PRIMARY KEY, not by convention.** Each
-  raw table declares its natural key as a PK; loads use
-  `INSERT ... ON CONFLICT (<pk>) DO UPDATE`. A duplicate can therefore never
-  exist even if the loader is called wrongly — the database rejects it.
-    - `raw.teams` PK `(team_id)`
-    - `raw.matches` PK `(match_id)`
-    - `raw.standings` PK `(competition_code, season_id, team_id, matchday)`
-- **One current row per match — no raw SCD.** A re-fetched match that moved
-  `SCHEDULED → FINISHED` overwrites its row. Point-in-time history lives only
-  in `fact_standings` downstream, which is why `matchday` is part of the
-  standings key: a new matchday is a new snapshot, not a new version of an
-  existing row.
-- **Standings: raw preserves EVERY table type the source returns.** The API's
-  standings response can carry TOTAL and (mid-season) HOME/AWAY tables; raw
-  lands all of them, so `standing_type` is part of the key
-  `(competition_code, season_id, team_id, matchday, standing_type)`. Filtering
-  to TOTAL is a *transformation* decision and is made explicitly downstream in
-  `stg_standings`, not silently at ingest — dropping data to fit a schema is
-  data loss in the wrong layer. (Note: for these competitions / the current
-  pre-season the API returns only TOTAL, verified against the live endpoint;
-  raw therefore contains only TOTAL today, but the loader no longer discards
-  anything, so HOME/AWAY are captured automatically if/when the source
-  provides them.) `currentMatchday` can be null pre-kickoff → coalesced to `0`
-  (the PK column is `NOT NULL`).
-- **Cache-first by default; `--refresh` to hit the API.** Every response is
-  written to `data/raw/` *before* loading. Re-runs cost zero API calls unless
-  `--refresh` is passed, so development never risks the rate limit.
-- **Rate limiting is defensive by design:** ~8 req/min (7.5s min gap between
-  real calls) against a 10/min hard cap, plus exponential backoff honouring
-  `Retry-After` on HTTP 429. An IP ban is impossible.
-- **TLS verification via the OS trust store (`truststore`).** The dev network
-  does SSL inspection (a corporate root CA). Rather than the insecure
-  `verify=False`, we verify against the OS store where that root is trusted —
-  a no-op on normal networks. Verification stays ON everywhere.
-- **The run fails loudly but finishes what it can:** a single unavailable
-  endpoint is reported and skipped, and the process exits non-zero if anything
-  failed.
+**`fact_standings` is derived from match results, not the standings endpoint.**
+The endpoint only returns one current table, and in the off-season it returns
+last season's final numbers stamped with the new season at matchday 1, which is
+self-contradictory. Computing each matchday's table from finished results is
+consistent and gives a real week-by-week progression. As a sanity check, the
+derived 2024/25 Premier League table matches reality (Liverpool champions on 84
+points). The raw standings still land in `raw.standings`, but nothing depends on
+them.
 
-### Phase 3 — dbt project, staging & sources
+**A definitive result counts, not just FINISHED.** An AWARDED match (a forfeit
+with an official scoreline) has a real result and has to count, otherwise a
+league table comes out wrong. So the rule is `has_result = status in
+('FINISHED', 'AWARDED')`.
 
-- **Sources point at the `raw` schema with freshness + descriptions.** Freshness
-  is measured on `_loaded_at` (warn 24h / error 72h) — it answers "did the
-  scheduled pipeline actually refresh the live leagues recently?", which is the
-  orchestration signal Phase 6 depends on.
-- **Staging is strictly 1:1 with raw: unpack JSON, rename, cast — nothing
-  else.** Row counts match raw exactly (144 / 1856 / 144). No joins, no dedup,
-  no filtering. This is enforced by reading, not asserted — the models contain
-  only `source -> select` with column expressions.
-- **The TOTAL-vs-HOME/AWAY decision is surfaced, not enforced, in staging.**
-  `stg_standings` keeps every row and adds a documented `is_total_standing`
-  flag. The actual filter (`where is_total_standing`) lands in the intermediate
-  layer in Phase 4 — so the choice is explicit and testable, and staging never
-  drops a row it received from raw.
-- **`profiles.yml` is committed** (it holds only the DuckDB file path, no
-  secrets) so the project is reproducible. dbt is run from `dbt/` with
-  `--profiles-dir .`.
-- **A `generate_schema_name` macro** gives clean schema names
-  (`staging` / `intermediate` / `marts`) instead of dbt's default
-  `main_staging` concatenation. The default guards against devs clobbering each
-  other in a shared warehouse; that risk does not exist in a single local
-  DuckDB file, so the cleaner names win for a readable lineage DAG.
+**`fact_standings` uses delete+insert on a surrogate key.** The key is
+`standing_key` = `competition|season|team|matchday`. delete+insert deletes the
+target rows whose key is in the incoming batch and reinserts, so a re-fetched
+matchday is replaced in place rather than duplicated, and a new matchday is
+appended. When new results land for a season the whole season is re-derived,
+because a corrected early result changes every later matchday's totals. append
+would duplicate; merge would add per-column update SQL for no real benefit here.
 
-### Phase 4 — intermediate & marts (the star schema)
+**`dim_competitions` comes from a seed.** `competition_type` is my own
+classification rather than an API field, and the competition list is small static
+reference data, which is what seeds are for.
 
-- **One `fact_matches` for leagues AND the World Cup.** The grain is identical
-  (a match is a match) and the interesting questions are cross-competition
-  ("goals per matchday", "results by stage"). Splitting by competition would
-  fragment that grain and force UNIONs for any cross-competition answer. The
-  `stage` column + the competition FK carry the league/tournament distinction
-  instead. Scores/measures are nullable and never fabricated to 0.
-- **The TOTAL filter lives in `int_standings_total`** — a single documented
-  `where is_total_standing`. Raw preserves all types, staging flags them, the
-  intermediate layer makes the exclusion; it is auditable in one place.
-- **`dim_competitions` comes from a seed**, because `competition_type`
-  (LEAGUE vs TOURNAMENT) is our analytical classification, not a source field,
-  and the list is small static reference data — the canonical use of a dbt
-  seed. **`dim_seasons` is derived from the match payload's season object**
-  (real source attributes: dates, current matchday); `season_id` is unique per
-  competition, so it is the PK. **`dim_teams`** is straight from `stg_teams`,
-  already unique on `team_id`.
-- **`fact_standings` is incremental. This is the reasoned centrepiece:**
-  - **`unique_key = standing_key`** (`competition|season|team|matchday`).
-  - **`incremental_strategy = delete+insert`.** `append` would duplicate a
-    re-fetched matchday; `delete+insert` deletes every target row whose
-    `standing_key` is in the incoming batch then inserts the batch, so a
-    re-fetched in-progress matchday is **replaced in place** while a brand-new
-    matchday is inserted. `merge` would also work but adds per-column update SQL
-    for no benefit on a single surrogate key.
-  - **Watermark:** later runs only pull rows with `_loaded_at` newer than the
-    max already stored. Every raw upsert bumps `_loaded_at`, so a re-fetched
-    matchday is always picked up.
-  - **First run vs later runs:** the first run (or `--full-refresh`) has no
-    table yet, so `is_incremental()` is false and the whole history builds;
-    later runs apply the watermark filter and delete+insert.
-  - **Proven:** mutated one raw snapshot's points `85 → 999`, ran incrementally
-    → the `(team, matchday)` row updated in place, `rows_for_key = 1` (no
-    duplicate), `total = 144` unchanged; restored → back to `85`.
-- **Single-writer discipline:** every step (ingest, each `dbt` invocation, each
-  ad-hoc query) is its own process that opens and closes the DuckDB file before
-  the next starts. DuckDB allows only one writer; two processes opening the file
-  at once is what made a finished job look "hung" earlier. Phase 6 CI keeps the
-  same strictly-sequential shape.
+**Schema names are kept clean via a `generate_schema_name` macro.** dbt's default
+would prefix everything (`main_staging`, ...). That default exists to stop
+developers clobbering each other in a shared warehouse, which isn't a concern for
+a single local file, so I override it for a more readable lineage graph.
 
-### Phase 5 — tests, docs & the fact_standings rework
+**Everything runs single-writer.** DuckDB allows one writer at a time. Ingest and
+each dbt command run as separate sequential processes that open and close the
+file, and the CI job uses a concurrency group so two scheduled runs can't
+overlap.
 
-- **`fact_standings` is now DERIVED from match results, not the standings
-  endpoint.** The API returns a single "current" table; in the off-season it
-  reports last season's final numbers stamped with the new season at matchday 1
-  — a contradiction. We instead compute each matchday's table by cumulating
-  finished match results, which is internally consistent and yields a real
-  week-by-week progression (verified: Liverpool as PL 2024/25 champions on 84
-  pts, matching reality). Tie-break: points → goal difference → goals for.
-- **Scope is LEAGUE + REGULAR_SEASON only; the World Cup is excluded** (its
-  group/knockout format doesn't produce a league table). The exclusion is an
-  explicit `where` clause, documented in the model header.
-- **A definitive result counts, not just `FINISHED`.** `AWARDED` matches carry
-  an official scoreline (e.g. a forfeit) and must count toward the table, so the
-  contribution rule is `has_result = status in ('FINISHED','AWARDED')`.
-  Excluding them would make two 2024/25 tables wrong by a game. (This is a
-  deliberate, documented widening of "only played matches count".)
-- **One historical season (2024/25) was ingested alongside the live 2026/27
-  data**, because the leagues are mid-off-season with zero finished matches, so
-  a match-derived table would otherwise be empty. Ingestion is now season-aware
-  (`--season`, `--endpoints`); `dim_teams` unions teams across seasons (so
-  relegated sides still resolve FKs). The live 2026/27 season is retained for
-  the incremental/orchestration story.
-- **The raw standings endpoint data is kept in `raw` (harmless) but nothing
-  downstream depends on it.** `stg_standings` remains as a faithful typed view
-  (and keeps source-freshness monitoring); the previously-planned
-  `int_standings_total` TOTAL filter became dead code and was removed. The
-  Phase-2/3 "TOTAL vs HOME/AWAY" decision is therefore moot for the star schema.
-- **Tests:** every PK has `unique`+`not_null`; every FK has a `relationships`
-  test; `accepted_values` on the enum columns (observed sets, fail-loud policy).
-  Five **singular** tests: scores never negative; WC knockout never a
-  draw/null-winner when finished; `played = won+drawn+lost`;
-  `points = won*3 + drawn`; cumulative `played` never decreases by matchday.
-- **Zero deprecation warnings:** generic-test arguments are nested under
-  `arguments:` (dbt 1.10+). `dbt build` → `PASS=73, ERROR=0`.
-- **`dbt docs generate`** resolves the full lineage DAG:
-  `seed + raw sources → staging → intermediate → marts`.
+## Tests
 
-### Phase 6 — orchestration & final pass
+- `unique` and `not_null` on every primary key.
+- A `relationships` test on every foreign key (each fact FK back to its dim).
+- `accepted_values` on the enum-like columns. `status` and `stage` list only the
+  values actually seen in the data, so they fail if something unexpected shows
+  up rather than quietly accepting it.
+- Five singular tests: scores are never negative; a finished World Cup knockout
+  is never a draw with a null winner; `played = won + drawn + lost`;
+  `points = won*3 + drawn`; and cumulative games played never decreases as the
+  matchday increases.
 
-- **CI pulls the live season only, never the frozen backfill.** Re-pulling the
-  static completed 2024/25 season nightly would burn API budget for data that
-  cannot change. The schedule pulls the current season (`--refresh`, no
-  `--season`); the historical backfill is a one-off manual ingest.
-- **`dbt build`, not separate run+test.** One pass runs each model then its
-  tests in DAG order and exits non-zero on the first failing test — the
-  simplest "fail loudly" contract for CI.
-- **Single-writer discipline carried into CI.** Ingest and dbt are separate
-  sequential steps (separate processes), and a `concurrency` group stops two
-  scheduled runs overlapping — the same DuckDB single-writer rule that bit us
-  in Phase 3, now enforced by the workflow.
-- **TLS degrades safely on the runner.** `truststore` uses the OS trust store;
-  on `ubuntu-latest` that is the public-CA bundle, so the corporate-proxy
-  workaround from local dev becomes a normal public-CA verification with no code
-  change. Verified by running the exact CI command sequence against a fresh
-  live-only warehouse locally (green build, `fact_standings` empty — the honest
-  off-season result).
-- **Honesty over polish.** The docs state plainly that a run tonight processes
-  fixtures with no results yet, so standings are empty until the season starts.
-  An interviewer asking "what does a run do tonight?" gets a true answer.
+`dbt build` runs models and tests together and comes back with `PASS=73,
+ERROR=0`.
 
----
-
-## Local setup & run
+## Local setup and run
 
 ```bash
-# 1. Create and activate a virtual environment (Python 3.11+)
+# 1. Virtual environment (Python 3.11+)
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 
-# 2. Install dependencies
+# 2. Dependencies
 pip install -r requirements.txt
 
-# 3. Configure credentials
-cp .env.example .env             # then paste your football-data.org key
+# 3. Credentials
+cp .env.example .env               # then paste your football-data.org key
 
-# 4. Ingest raw data           (Phase 2)
-python -m ingestion.run              # cache-first: no API calls if already cached
-# python -m ingestion.run --refresh  # re-fetch live (2026/27) data from the API
-# one completed season for derived standings (matches + teams only):
+# 4. Ingest
+python -m ingestion.run                         # cache-first, no API calls if cached
+# python -m ingestion.run --refresh             # re-fetch the live season
+# one completed season for the derived standings:
 # python -m ingestion.run --refresh --season 2024 --competitions PL PD BL1 SA FL1 --endpoints teams matches
-# python -m ingestion.run --competitions PL SA    # subset
 
-# 5. Transform + test          (Phase 3+; run from the dbt/ dir)
+# 5. Transform, test, docs (run from dbt/)
 cd dbt
-dbt build --profiles-dir .           # run models + tests together
-dbt source freshness --profiles-dir . # check ingestion recency
-cd ..
-
-# 6. Generate docs / lineage   (Phase 5)
-# cd dbt && dbt docs generate --profiles-dir . && dbt docs serve --profiles-dir .
+dbt build --profiles-dir .
+dbt source freshness --profiles-dir .
+dbt docs generate --profiles-dir . && dbt docs serve --profiles-dir .
 ```
 
----
+## Orchestration
 
-## Orchestration (GitHub Actions)
+[`.github/workflows/pipeline.yml`](.github/workflows/pipeline.yml) runs on a cron
+schedule (06:00 UTC) and on manual dispatch. The steps are sequential (install,
+ingest the live season, `dbt build`, generate docs), each its own process so the
+DuckDB file is never opened by two writers at once. `dbt build` exits non-zero if
+any test fails, so a data problem turns the job red.
 
-[`.github/workflows/pipeline.yml`](.github/workflows/pipeline.yml) runs the whole
-pipeline on a schedule (`cron: 0 6 * * *`) and on manual dispatch.
+The API key comes from a GitHub repository secret, `FOOTBALL_DATA_API_KEY`,
+injected as an environment variable. Only `.env.example` is in git.
 
-**Steps, strictly sequential** (single-writer DuckDB discipline — each step is
-its own process that closes the file before the next opens it):
+On TLS: locally I'm behind an SSL-inspecting proxy, so the client uses
+`truststore` to verify against the OS trust store (which has the corporate root)
+instead of certifi's bundle. On a GitHub runner there's no corporate root, so the
+OS store is just the normal public CAs and this becomes ordinary public-CA
+verification. Verification stays on either way.
 
-1. `pip install -r requirements.txt`
-2. **ingest** the live current season — `python -m ingestion.run --refresh`
-3. **`dbt build`** (run models + run tests in one pass)
-4. `dbt docs generate` + upload docs artifact
+CI only pulls the live current season. I don't re-pull the frozen 2024/25
+backfill on a schedule, because it can't change.
 
-**Fail loudly.** `dbt build` exits non-zero if *any* test fails, so a data-quality
-regression turns the job red. Ingestion also exits non-zero if any endpoint fails.
+To run it on GitHub:
 
-**Secret handling.** The API key comes from a GitHub repository secret,
-`FOOTBALL_DATA_API_KEY`, injected as an env var. It is never committed (only
-`.env.example` is in git), never echoed, and GitHub masks it in logs.
-
-**TLS on the runner.** The client calls `truststore.inject_into_ssl()`, which uses
-the *runner's* OS trust store. `ubuntu-latest` carries the standard public CAs (no
-corporate root exists there), so it degrades to ordinary public-CA verification —
-verification stays on, and the corporate-proxy case from local dev simply doesn't
-apply. A successful ingest step is the proof.
-
-**What CI actually pulls (and what a run does tonight).** The schedule pulls only
-the **live current season** (`--refresh`, no `--season`). It deliberately does
-**not** re-pull the frozen, completed **2024/25** backfill — that data never
-changes, so re-fetching it nightly would waste API budget for nothing.
-
-> **Honest off-season note.** As of now the leagues are in the **2026/27
-> off-season**: a scheduled pull fetches fixtures with no results yet, so
-> `fact_standings` (derived from *finished* matches) is legitimately **empty**
-> until the season kicks off. Nothing is faked to hide this. The pipeline is
-> complete and correct, and the *same* workflow will produce real matchday
-> standings with no code change once 2026/27 begins. The incremental behaviour is
-> demonstrated locally against the backfilled, completed **2024/25** season (which
-> is why that season was ingested) — not against live data, because no live
-> results exist yet.
-
-### Running it on GitHub
-
-```
-# 1. Create a repo and push
+```bash
 git remote add origin https://github.com/<you>/football-analytics.git
 git push -u origin main
-
-# 2. Add the API key as a repository secret (never commit it)
-#    Settings ▸ Secrets and variables ▸ Actions ▸ New repository secret
-#    Name: FOOTBALL_DATA_API_KEY   Value: <your football-data.org key>
-#    (or with the gh CLI:)  gh secret set FOOTBALL_DATA_API_KEY
-
-# 3. Trigger it: Actions ▸ "football-data-pipeline" ▸ Run workflow
-#    (or wait for the 06:00 UTC schedule)
+# Settings > Secrets and variables > Actions > New repository secret
+#   FOOTBALL_DATA_API_KEY = <your key>
+# Then: Actions > football-data-pipeline > Run workflow
 ```
 
-## Build phases
+## Lineage
 
-- [x] **Phase 1** — repo scaffold (folders, `.gitignore`, `.env.example`,
-      dependencies, README skeleton, git init + first commit)
-- [x] **Phase 2** — ingestion (fetch + JSON cache + rate limit + backoff +
-      idempotent upsert-by-natural-key into DuckDB `raw` schema)
-- [x] **Phase 3** — dbt project init + staging models + sources (freshness,
-      descriptions, 1:1 typed views)
-- [x] **Phase 4** — intermediate + marts (star schema, incremental
-      `fact_standings` with delete+insert)
-- [x] **Phase 5** — tests (generic + singular) + descriptions + `dbt docs`;
-      `fact_standings` reworked to be match-derived
-- [x] **Phase 6** — GitHub Actions orchestration (scheduled + manual, fail-loud)
-      + final README pass
+The rendered dbt docs graph, sources and seed through to the marts, with the
+singular tests hanging off the facts:
 
----
+![dbt docs lineage graph](docs/lineage_dag.png)
 
-## Pipeline lineage (DAG)
-
-The rendered `dbt docs` lineage graph (sources & seed → staging → intermediate →
-marts, with the singular tests hanging off the facts):
-
-![dbt docs lineage DAG](docs/lineage_dag.png)
-
-The same lineage as a text diagram (renders inline on GitHub):
+Same thing as a diagram that renders inline on GitHub:
 
 ```mermaid
 flowchart LR
@@ -435,11 +265,20 @@ flowchart LR
   fact_matches --> fact_standings
   dim_competitions --> fact_standings
 
-  stg_standings -.->|kept for lineage/freshness; not consumed| x((·))
-
   classDef mart fill:#d5e8d4,stroke:#2d6a2d;
   class dim_competitions,dim_teams,dim_seasons,fact_matches,fact_standings mart;
 ```
 
-> For the interactive, clickable graph: `cd dbt && dbt docs generate
-> --profiles-dir . && dbt docs serve --profiles-dir .`
+## Repo layout
+
+```
+ingestion/          Python: fetch -> cache raw JSON -> load DuckDB raw schema
+dbt/
+  models/staging/       1:1 with raw, views
+  models/intermediate/  joins, dedup, business logic
+  models/marts/         star schema, tables
+  tests/                custom singular tests
+  seeds/                competition reference data
+.github/workflows/  scheduled pipeline
+data/               DuckDB file + cached raw JSON (git-ignored)
+```

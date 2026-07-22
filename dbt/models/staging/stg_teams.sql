@@ -1,17 +1,17 @@
--- Staging: raw.teams -> one typed row per team.
--- THIN by design: unpack the JSON payload, rename, cast. Nothing else.
--- No joins, no dedup, no filtering (raw.teams is already unique on team_id).
+-- Staging for raw.teams: one typed row per team. Thin by design (unpack the
+-- JSON payload, rename, cast). No joins or dedup; raw.teams is already unique
+-- on team_id.
 
 with source as (
     select * from {{ source('raw', 'teams') }}
 )
 
 select
-    -- natural key (already typed in raw, carried through 1:1)
+    -- natural key, carried through as-is
     team_id,
     competition_code,
 
-    -- attributes unpacked from the raw JSON payload
+    -- attributes unpacked from the JSON payload
     payload ->> '$.name'          as team_name,
     payload ->> '$.shortName'     as short_name,
     payload ->> '$.tla'           as tla,
@@ -22,7 +22,6 @@ select
     payload ->> '$.website'       as website,
     payload ->> '$.area.name'     as area_name,
 
-    -- ingestion metadata
     _source_file,
     _loaded_at
 from source

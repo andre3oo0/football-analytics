@@ -4,15 +4,14 @@ sources:
   - name: raw
     description: >
       Landed football-data.org API responses, loaded by the Python ingestion
-      layer. Each row is a natural key plus the untouched JSON payload; the
-      table PRIMARY KEY enforces idempotency (upsert, never append). All
+      layer. Each row is a natural key plus the untouched JSON payload, and the
+      table's primary key enforces idempotency (upsert, never append). All the
       field-level interpretation happens in the staging models below.
-    database: football          # DuckDB catalog = football.duckdb file stem
+    database: football          # DuckDB names the catalog after the file stem
     schema: raw
 
-    # Source freshness measures how stale OUR ingestion is (the scheduled
-    # pipeline should refresh the live leagues regularly). _loaded_at is set at
-    # load time by the loader.
+    # Freshness here measures how stale the ingestion is (the scheduled pipeline
+    # should refresh the live leagues regularly). _loaded_at is set by the loader.
     freshness:
       warn_after: {count: 24, period: hour}
       error_after: {count: 72, period: hour}

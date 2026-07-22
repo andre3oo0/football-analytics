@@ -1,8 +1,8 @@
--- Dimension: one row per team. Sourced straight from stg_teams, which is
--- already unique on team_id (raw enforces the PK), so no dedup is needed.
+-- One row per team, straight from stg_teams. raw.teams already enforces the
+-- team_id primary key, so there's nothing to dedup.
 
 select
-    team_id,                   -- PK / natural key (FK target for fact_matches, fact_standings)
+    team_id,                   -- primary key (facts reference it)
     team_name,
     short_name,
     tla,

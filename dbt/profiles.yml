@@ -1,13 +1,13 @@
 # dbt-duckdb connection profile.
 #
-# Contains NO secrets — just the path to the local DuckDB warehouse — so it is
-# safe to commit and makes the project reproducible. Run dbt from the dbt/
-# directory (the path is resolved relative to the working directory):
+# There are no secrets in here, just the path to the local DuckDB file, so it's
+# fine to commit and keeps the project reproducible. Run dbt from the dbt/
+# directory (the path resolves relative to the working directory):
 #
 #     cd dbt
 #     dbt build --profiles-dir .
 #
-# Override the DB location if needed with the DBT_DUCKDB_PATH env var.
+# Point it somewhere else with the DBT_DUCKDB_PATH env var if you need to.
 football_analytics:
   target: dev
   outputs:

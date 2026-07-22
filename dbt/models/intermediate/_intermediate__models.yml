@@ -3,8 +3,8 @@ version: 2
 models:
   - name: int_seasons
     description: >
-      One row per competition-season, deduped from the season object repeated
-      across stg_matches. Adds a human-readable season_label. Feeds dim_seasons.
+      One row per competition-season, deduped from the season object that
+      repeats across stg_matches. Adds a readable season_label. Feeds dim_seasons.
     columns:
       - name: season_id
         description: "Season natural key (unique per competition)."
@@ -14,8 +14,8 @@ models:
 
   - name: int_matches
     description: >
-      Match-level business logic on top of stg_matches: null-safe measures
-      (total goals, points per side) and an is_played flag. Feeds fact_matches.
+      Match-level derivations on top of stg_matches: null-safe measures (total
+      goals, points per side) and a has_result flag. Feeds fact_matches.
     columns:
       - name: match_id
         data_tests: [unique, not_null]

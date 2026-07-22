@@ -2,7 +2,7 @@ name: 'football_analytics'
 version: '1.0.0'
 config-version: 2
 
-# This profile is defined in the profiles.yml shipped alongside this project.
+# Profile lives in the profiles.yml next to this file.
 # Run dbt from the dbt/ directory with: --profiles-dir .
 profile: 'football_analytics'
 
@@ -17,10 +17,10 @@ clean-targets:
   - "target"
   - "dbt_packages"
 
-# Layering strategy (do not collapse):
-#   staging      -> thin, 1:1 with raw, rename/cast/unpack only -> VIEWS
-#   intermediate -> joins, dedup, business logic                -> VIEWS  (Phase 4)
-#   marts        -> star schema (dims + facts)                  -> TABLES (Phase 4)
+# Layering, kept separate on purpose:
+#   staging      thin 1:1 views over raw (rename/cast/unpack only)
+#   intermediate views for joins, dedup and business logic
+#   marts        the star schema (dims + facts), materialized as tables
 models:
   football_analytics:
     staging:
