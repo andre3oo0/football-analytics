@@ -1,0 +1,91 @@
+name: football-data-pipeline
+
+# Scheduled + manual orchestration of the whole pipeline:
+#   ingest (live season)  ->  dbt build (run + test)  ->  docs
+#
+# WHAT A RUN ACTUALLY DOES TONIGHT (honest framing)
+# -------------------------------------------------
+# The pipeline is complete and correct, and runs through the same path every
+# night. But the leagues are currently in the 2026/27 OFF-SEASON: a scheduled
+# pull today fetches fixtures that have no results yet, so fact_standings
+# (derived from finished matches) is legitimately EMPTY until the season kicks
+# off. Nothing is faked to hide this. Once 2026/27 begins, the identical
+# workflow starts producing real matchday standings with no code change.
+# Incremental behaviour is demonstrated locally against the backfilled,
+# completed 2024/25 season (see README) — NOT against live data, because no
+# live results exist yet.
+
+on:
+  schedule:
+    # 06:00 UTC daily. Cheap: pulls only the current season (~18 requests) at
+    # ~8 req/min, well under the 10/min free-tier cap.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}   # manual "Run workflow" button
+
+# Never let two scheduled runs overlap — the DuckDB warehouse is single-writer.
+concurrency:
+  group: football-data-pipeline
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    env:
+      # Supplied by a GitHub repository SECRET. Never committed; GitHub masks it
+      # in logs; we never echo it. The ingestion code reads it from this env var.
+      FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ---------------------------------------------------------------------
+      # SEQUENTIAL, single-writer: each step is its own process that opens and
+      # closes the DuckDB file before the next step starts. Never two writers.
+      # ---------------------------------------------------------------------
+
+      - name: Ingest live season (current 2026/27 leagues + World Cup)
+        # LIVE current season only (no --season): we deliberately do NOT re-pull
+        # the frozen, completed 2024/25 backfill on a schedule — it never
+        # changes, so re-fetching it nightly would waste API budget for nothing.
+        #
+        # TLS: the client calls truststore.inject_into_ssl(), which uses the
+        # RUNNER's OS trust store. On ubuntu-latest that store holds the standard
+        # public CAs (no corporate root exists here), so verification is normal
+        # public-CA verification — exactly the graceful degradation intended.
+        # If this step connects and returns 200s, TLS in CI is proven.
+        run: python -m ingestion.run --refresh
+
+      - name: dbt build (run models + run tests; FAIL LOUDLY)
+        working-directory: dbt
+        # dbt build runs models and their tests in DAG order and exits non-zero
+        # if ANY test fails -> this step fails -> the job goes red. That is the
+        # "fail loudly" guarantee.
+        run: dbt build --profiles-dir .
+
+      - name: Generate dbt docs (lineage + catalog)
+        working-directory: dbt
+        run: dbt docs generate --profiles-dir .
+
+      - name: Upload dbt docs as an artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-docs
+          path: |
+            dbt/target/index.html
+            dbt/target/manifest.json
+            dbt/target/catalog.json
+          if-no-files-found: ignore
