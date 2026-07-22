@@ -1,0 +1,205 @@
+"""Load cached API responses into the DuckDB ``raw`` schema.
+
+Raw load semantics (the important part):
+
+* Idempotent = **UPSERT BY NATURAL KEY**, never blind append.
+* The natural key is enforced by a table-level PRIMARY KEY, so the guarantee
+  lives in the schema, not in convention:
+    - raw.teams      PK (team_id)
+    - raw.matches    PK (match_id)
+    - raw.standings  PK (competition_code, season_id, team_id, matchday)
+* We upsert with ``INSERT ... ON CONFLICT (<pk>) DO UPDATE``. Re-loading a
+  record REPLACES the existing row, so a match that moved SCHEDULED -> FINISHED
+  overwrites its old row. There is exactly one current row per natural key —
+  we do not keep raw history / SCD here. Point-in-time lives downstream in
+  fact_standings (which is why matchday is part of the standings key: distinct
+  matchdays are distinct snapshots, not versions of one row).
+
+Ingestion stays thin: each raw row is the natural key (typed, for the
+constraint) plus the untouched API payload as JSON. dbt does all field-level
+work.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from pathlib import Path
+
+import duckdb
+
+# --------------------------------------------------------------------------- #
+# DDL — the schema IS the idempotency guarantee.
+# --------------------------------------------------------------------------- #
+_DDL: list[str] = [
+    "CREATE SCHEMA IF NOT EXISTS raw;",
+    """
+    CREATE TABLE IF NOT EXISTS raw.teams (
+        team_id           BIGINT      NOT NULL,
+        competition_code  VARCHAR     NOT NULL,
+        payload           JSON        NOT NULL,
+        _source_file      VARCHAR,
+        _loaded_at        TIMESTAMP,
+        PRIMARY KEY (team_id)
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS raw.matches (
+        match_id          BIGINT      NOT NULL,
+        competition_code  VARCHAR     NOT NULL,
+        payload           JSON        NOT NULL,
+        _source_file      VARCHAR,
+        _loaded_at        TIMESTAMP,
+        PRIMARY KEY (match_id)
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS raw.standings (
+        competition_code  VARCHAR     NOT NULL,
+        season_id         BIGINT      NOT NULL,
+        team_id           BIGINT      NOT NULL,
+        matchday          INTEGER     NOT NULL,
+        stage             VARCHAR,
+        group_name        VARCHAR,
+        payload           JSON        NOT NULL,
+        _source_file      VARCHAR,
+        _loaded_at        TIMESTAMP,
+        PRIMARY KEY (competition_code, season_id, team_id, matchday)
+    );
+    """,
+]
+
+
+class RawLoader:
+    """Owns a DuckDB connection and the upsert logic for the raw schema."""
+
+    def __init__(self, db_path: str | Path) -> None:
+        self.db_path = str(db_path)
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        self.con = duckdb.connect(self.db_path)
+
+    # ------------------------------------------------------------------ #
+    # Lifecycle
+    # ------------------------------------------------------------------ #
+    def create_schema(self) -> None:
+        for stmt in _DDL:
+            self.con.execute(stmt)
+
+    def close(self) -> None:
+        self.con.close()
+
+    def __enter__(self) -> "RawLoader":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    def row_counts(self) -> dict[str, int]:
+        return {
+            table: self.con.execute(
+                f"SELECT count(*) FROM raw.{table}"
+            ).fetchone()[0]
+            for table in ("teams", "matches", "standings")
+        }
+
+    # ------------------------------------------------------------------ #
+    # Loads (one per endpoint). Each returns the number of rows upserted.
+    # ------------------------------------------------------------------ #
+    def load_teams(self, response: dict, competition_code: str, source_file: str) -> int:
+        now = datetime.now()
+        rows = [
+            (int(team["id"]), competition_code, json.dumps(team), source_file, now)
+            for team in response.get("teams", [])
+        ]
+        self.con.executemany(
+            """
+            INSERT INTO raw.teams
+                (team_id, competition_code, payload, _source_file, _loaded_at)
+            VALUES (?, ?, ?::JSON, ?, ?)
+            ON CONFLICT (team_id) DO UPDATE SET
+                competition_code = excluded.competition_code,
+                payload          = excluded.payload,
+                _source_file     = excluded._source_file,
+                _loaded_at       = excluded._loaded_at;
+            """,
+            rows,
+        )
+        return len(rows)
+
+    def load_matches(self, response: dict, competition_code: str, source_file: str) -> int:
+        now = datetime.now()
+        rows = [
+            (int(match["id"]), competition_code, json.dumps(match), source_file, now)
+            for match in response.get("matches", [])
+        ]
+        self.con.executemany(
+            """
+            INSERT INTO raw.matches
+                (match_id, competition_code, payload, _source_file, _loaded_at)
+            VALUES (?, ?, ?::JSON, ?, ?)
+            ON CONFLICT (match_id) DO UPDATE SET
+                competition_code = excluded.competition_code,
+                payload          = excluded.payload,
+                _source_file     = excluded._source_file,
+                _loaded_at       = excluded._loaded_at;
+            """,
+            rows,
+        )
+        return len(rows)
+
+    def load_standings(self, response: dict, competition_code: str, source_file: str) -> int:
+        """Explode the standings snapshot to one row per team.
+
+        A standings response is a single snapshot at season.currentMatchday.
+        We keep only type == 'TOTAL' tables (the real league/group table);
+        HOME/AWAY splits are dropped because the natural key
+        (competition, season, team, matchday) does not include type and the
+        downstream fact_standings grain is team-per-matchday.
+        """
+        now = datetime.now()
+        season = response.get("season") or {}
+        season_id = season.get("id")
+        # currentMatchday can be null (e.g. a tournament pre-kickoff); the PK
+        # column is NOT NULL, so coalesce to 0 and let dbt interpret it.
+        matchday = season.get("currentMatchday") or 0
+
+        rows = []
+        for entry in response.get("standings", []):
+            if entry.get("type") != "TOTAL":
+                continue
+            stage = entry.get("stage")
+            group_name = entry.get("group")
+            for line in entry.get("table", []):
+                team_id = line.get("team", {}).get("id")
+                if team_id is None or season_id is None:
+                    continue  # cannot form the natural key; skip defensively
+                rows.append(
+                    (
+                        competition_code,
+                        int(season_id),
+                        int(team_id),
+                        int(matchday),
+                        stage,
+                        group_name,
+                        json.dumps(line),
+                        source_file,
+                        now,
+                    )
+                )
+
+        self.con.executemany(
+            """
+            INSERT INTO raw.standings
+                (competition_code, season_id, team_id, matchday,
+                 stage, group_name, payload, _source_file, _loaded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?::JSON, ?, ?)
+            ON CONFLICT (competition_code, season_id, team_id, matchday) DO UPDATE SET
+                stage        = excluded.stage,
+                group_name   = excluded.group_name,
+                payload      = excluded.payload,
+                _source_file = excluded._source_file,
+                _loaded_at   = excluded._loaded_at;
+            """,
+            rows,
+        )
+        return len(rows)
