@@ -77,6 +77,11 @@ football-data.org API (REST v4, free tier: 10 req/min)
 Endpoints per competition: `/competitions/{id}/teams`,
 `/competitions/{id}/matches`, `/competitions/{id}/standings`.
 
+**Seasons:** the leagues are pulled for the live **2026/27** season (drives the
+incremental/orchestration story) plus one completed **2024/25** season
+(`--season 2024`), which supplies the finished results that `fact_standings` is
+derived from. Ingestion is season-aware, and cached per season.
+
 ---
 
 ## Dimensional model (target grain)
@@ -89,8 +94,9 @@ Endpoints per competition: `/competitions/{id}/teams`,
   World Cup share a single fact table). Includes a `stage` column
   (`REGULAR_SEASON` for leagues; `GROUP_STAGE` / `LAST_16` / `QUARTER_FINALS` /
   `SEMI_FINALS` / `FINAL` etc. for the WC). Scores are nullable.
-- **fact_standings** — one row per team per matchday snapshot; built
-  **incrementally**; driven by the live leagues, not the WC.
+- **fact_standings** — one row per team per matchday snapshot, **derived by
+  cumulating finished match results** (not the standings endpoint); built
+  **incrementally**; LEAGUE competitions only (the WC is excluded by design).
 
 > Design rationale (why this grain, why one fact table for both leagues and the
 > WC, why these tests) is written up in [Decisions](#decisions) below.
@@ -230,8 +236,43 @@ Endpoints per competition: `/competitions/{id}/teams`,
   at once is what made a finished job look "hung" earlier. Phase 6 CI keeps the
   same strictly-sequential shape.
 
-<!-- Later phases: why singular tests chosen, what a pipeline failure looks
-     like, etc. -->
+### Phase 5 — tests, docs & the fact_standings rework
+
+- **`fact_standings` is now DERIVED from match results, not the standings
+  endpoint.** The API returns a single "current" table; in the off-season it
+  reports last season's final numbers stamped with the new season at matchday 1
+  — a contradiction. We instead compute each matchday's table by cumulating
+  finished match results, which is internally consistent and yields a real
+  week-by-week progression (verified: Liverpool as PL 2024/25 champions on 84
+  pts, matching reality). Tie-break: points → goal difference → goals for.
+- **Scope is LEAGUE + REGULAR_SEASON only; the World Cup is excluded** (its
+  group/knockout format doesn't produce a league table). The exclusion is an
+  explicit `where` clause, documented in the model header.
+- **A definitive result counts, not just `FINISHED`.** `AWARDED` matches carry
+  an official scoreline (e.g. a forfeit) and must count toward the table, so the
+  contribution rule is `has_result = status in ('FINISHED','AWARDED')`.
+  Excluding them would make two 2024/25 tables wrong by a game. (This is a
+  deliberate, documented widening of "only played matches count".)
+- **One historical season (2024/25) was ingested alongside the live 2026/27
+  data**, because the leagues are mid-off-season with zero finished matches, so
+  a match-derived table would otherwise be empty. Ingestion is now season-aware
+  (`--season`, `--endpoints`); `dim_teams` unions teams across seasons (so
+  relegated sides still resolve FKs). The live 2026/27 season is retained for
+  the incremental/orchestration story.
+- **The raw standings endpoint data is kept in `raw` (harmless) but nothing
+  downstream depends on it.** `stg_standings` remains as a faithful typed view
+  (and keeps source-freshness monitoring); the previously-planned
+  `int_standings_total` TOTAL filter became dead code and was removed. The
+  Phase-2/3 "TOTAL vs HOME/AWAY" decision is therefore moot for the star schema.
+- **Tests:** every PK has `unique`+`not_null`; every FK has a `relationships`
+  test; `accepted_values` on the enum columns (observed sets, fail-loud policy).
+  Five **singular** tests: scores never negative; WC knockout never a
+  draw/null-winner when finished; `played = won+drawn+lost`;
+  `points = won*3 + drawn`; cumulative `played` never decreases by matchday.
+- **Zero deprecation warnings:** generic-test arguments are nested under
+  `arguments:` (dbt 1.10+). `dbt build` → `PASS=73, ERROR=0`.
+- **`dbt docs generate`** resolves the full lineage DAG:
+  `seed + raw sources → staging → intermediate → marts`.
 
 ---
 
@@ -252,8 +293,10 @@ cp .env.example .env             # then paste your football-data.org key
 
 # 4. Ingest raw data           (Phase 2)
 python -m ingestion.run              # cache-first: no API calls if already cached
-# python -m ingestion.run --refresh  # re-fetch live data from the API
-# python -m ingestion.run --competitions PL SA   # subset
+# python -m ingestion.run --refresh  # re-fetch live (2026/27) data from the API
+# one completed season for derived standings (matches + teams only):
+# python -m ingestion.run --refresh --season 2024 --competitions PL PD BL1 SA FL1 --endpoints teams matches
+# python -m ingestion.run --competitions PL SA    # subset
 
 # 5. Transform + test          (Phase 3+; run from the dbt/ dir)
 cd dbt
@@ -277,7 +320,8 @@ cd ..
       descriptions, 1:1 typed views)
 - [x] **Phase 4** — intermediate + marts (star schema, incremental
       `fact_standings` with delete+insert)
-- [ ] **Phase 5** — tests (generic + singular) + descriptions + `dbt docs`
+- [x] **Phase 5** — tests (generic + singular) + descriptions + `dbt docs`;
+      `fact_standings` reworked to be match-derived
 - [ ] **Phase 6** — GitHub Actions orchestration + final README pass
 
 ---

@@ -15,4 +15,5 @@ seeds:
         description: "Our classification."
         data_tests:
           - accepted_values:
-              values: ['LEAGUE', 'TOURNAMENT']
+              arguments:
+                values: ['LEAGUE', 'TOURNAMENT']

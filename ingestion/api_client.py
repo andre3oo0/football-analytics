@@ -72,14 +72,22 @@ class FootballDataClient:
     # Public API
     # ------------------------------------------------------------------ #
     def get_competition_resource(
-        self, competition_code: str, resource: str, *, force_refresh: bool = False
+        self,
+        competition_code: str,
+        resource: str,
+        *,
+        season: int | None = None,
+        force_refresh: bool = False,
     ) -> dict:
         """Return the JSON for /competitions/{code}/{resource}.
 
-        Served from the on-disk cache unless it is missing or force_refresh is
-        set. Whatever we return is always also present on disk as JSON.
+        ``season`` (the starting year, e.g. 2024 for 2024/25) selects a specific
+        season via the API's ?season= filter and is kept in a season-scoped cache
+        filename, so a historical season never overwrites the current-season
+        cache. Served from the on-disk cache unless it is missing or
+        force_refresh is set. Whatever we return is always also on disk as JSON.
         """
-        cache_path = self._cache_path(competition_code, resource)
+        cache_path = self._cache_path(competition_code, resource, season)
 
         if cache_path.exists() and not force_refresh:
             with cache_path.open(encoding="utf-8") as fh:
@@ -92,20 +100,27 @@ class FootballDataClient:
             )
 
         url = f"{BASE_URL}/competitions/{competition_code}/{resource}"
+        if season is not None:
+            url += f"?season={season}"
         payload = self._request_with_backoff(url)
 
         # Cache BEFORE returning so the load step reads a persisted artifact.
         cache_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return payload
 
-    def cache_path_for(self, competition_code: str, resource: str) -> Path:
-        return self._cache_path(competition_code, resource)
+    def cache_path_for(
+        self, competition_code: str, resource: str, season: int | None = None
+    ) -> Path:
+        return self._cache_path(competition_code, resource, season)
 
     # ------------------------------------------------------------------ #
     # Internals
     # ------------------------------------------------------------------ #
-    def _cache_path(self, competition_code: str, resource: str) -> Path:
-        return self.cache_dir / f"{competition_code}_{resource}.json"
+    def _cache_path(
+        self, competition_code: str, resource: str, season: int | None = None
+    ) -> Path:
+        suffix = f"_{season}" if season is not None else ""
+        return self.cache_dir / f"{competition_code}_{resource}{suffix}.json"
 
     def _throttle(self) -> None:
         """Sleep just long enough to keep >= min_interval between real calls."""

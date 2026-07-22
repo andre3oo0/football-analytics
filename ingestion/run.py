@@ -50,6 +50,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="CODE",
         help="Subset of competition codes to ingest (default: all).",
     )
+    parser.add_argument(
+        "--endpoints",
+        nargs="+",
+        metavar="EP",
+        choices=ENDPOINTS,
+        help="Subset of endpoints to ingest (default: all: teams matches standings).",
+    )
+    parser.add_argument(
+        "--season",
+        type=int,
+        metavar="YEAR",
+        help="Season start year (e.g. 2024 for 2024/25). Default: the API's "
+             "current season. Cached under a season-scoped filename.",
+    )
     return parser.parse_args(argv)
 
 
@@ -63,11 +77,15 @@ def main(argv: list[str] | None = None) -> int:
         wanted = {c.upper() for c in args.competitions}
         competitions = [c for c in COMPETITIONS if c.code in wanted]
 
+    endpoints = args.endpoints or ENDPOINTS
+
     client = FootballDataClient(api_key, RAW_CACHE_DIR)
 
     print(f"DuckDB warehouse : {args.db}")
     print(f"Raw JSON cache   : {RAW_CACHE_DIR}")
     print(f"Mode             : {'REFRESH (hit API)' if args.refresh else 'cache-first'}")
+    print(f"Season           : {args.season if args.season else 'current (API default)'}")
+    print(f"Endpoints        : {' '.join(endpoints)}")
     print(f"API key present  : {'yes' if api_key else 'no (cache-only)'}")
     print("-" * 68)
 
@@ -77,12 +95,12 @@ def main(argv: list[str] | None = None) -> int:
         loader.create_schema()
 
         for comp in competitions:
-            for endpoint in ENDPOINTS:
+            for endpoint in endpoints:
                 try:
                     response = client.get_competition_resource(
-                        comp.code, endpoint, force_refresh=args.refresh
+                        comp.code, endpoint, season=args.season, force_refresh=args.refresh
                     )
-                    source_file = client.cache_path_for(comp.code, endpoint).name
+                    source_file = client.cache_path_for(comp.code, endpoint, args.season).name
                     method = getattr(loader, _LOADERS[endpoint])
                     n = method(response, comp.code, source_file)
                     print(f"  {comp.code:<4} {endpoint:<10} upserted {n:>4} rows")
