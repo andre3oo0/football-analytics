@@ -1,6 +1,6 @@
--- Intermediate: dedup season attributes into one row per competition-season.
--- The season object repeats identically across every match of a season, so we
--- collapse it here (business/dedup logic — not allowed in staging).
+-- Collapse the season attributes down to one row per competition-season. The
+-- season object repeats identically on every match of a season, so this dedup
+-- belongs here rather than in staging.
 
 with matches as (
     select
@@ -25,8 +25,8 @@ deduped as (
 
 select
     *,
-    -- Human-readable label. A single-calendar-year competition (e.g. the World
-    -- Cup) is just its year; a cross-year league season is "YYYY/YY".
+    -- Readable label. A one-calendar-year competition (like the World Cup) is
+    -- just its year; a cross-year league season is "YYYY/YY".
     case
         when extract(year from season_start_date) = extract(year from season_end_date)
             then cast(extract(year from season_start_date) as varchar)

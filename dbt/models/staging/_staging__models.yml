@@ -1,15 +1,15 @@
 version: 2
 
-# Phase 3 tests are staging-scoped: primary-key uniqueness / not-null and
-# accepted_values on the enum-like columns. Relationships tests and the custom
-# singular tests live with the marts (Phase 5).
+# Tests here are staging-scoped: primary-key uniqueness/not-null and
+# accepted_values on the enum-like columns. Relationships and the custom
+# singular tests live with the marts.
 #
-# accepted_values policy: status and stage are restricted to the values OBSERVED
-# in the data, NOT the documented API superset. A test that accepts everything
-# the docs allow catches nothing; we WANT these to fail loudly if an unexpected
-# value appears, so we learn the data shifted and can investigate. Widening a
-# list for a legitimate new value is then a conscious one-line change with a git
-# trail. (Test arguments are nested under `arguments:` per dbt 1.10+.)
+# One thing worth calling out: status and stage list only the values I've
+# actually seen in the data, not the full set the API docs allow. A test that
+# accepts everything catches nothing. I want these to fail if an unexpected
+# value shows up, so I find out the data changed. Adding a new value later is a
+# deliberate one-line edit with a git trail. Test arguments sit under
+# `arguments:` for dbt 1.10.
 
 models:
   - name: stg_teams
@@ -79,10 +79,10 @@ models:
 
   - name: stg_standings
     description: >
-      Thin typed view of raw.standings (1:1). Preserves all table types and
-      exposes is_total_standing. NOTE: nothing downstream depends on this model
-      any more — fact_standings is derived from match results instead. Kept for
-      lineage completeness and as a faithful copy of the standings endpoint.
+      Thin typed view of raw.standings (1:1). Keeps all table types and exposes
+      is_total_standing. Nothing downstream depends on this any more, since
+      fact_standings is derived from match results instead; it's kept as a
+      faithful copy of the standings endpoint and for freshness monitoring.
     columns:
       - name: competition_code
         data_tests: [not_null]

@@ -1,23 +1,22 @@
-"""Load cached API responses into the DuckDB ``raw`` schema.
+"""Load cached API responses into the DuckDB raw schema.
 
-Raw load semantics (the important part):
+The load is idempotent because it upserts by natural key, never blind-appends,
+and that natural key is enforced by a table-level PRIMARY KEY, so the guarantee
+lives in the schema rather than in convention:
 
-* Idempotent = **UPSERT BY NATURAL KEY**, never blind append.
-* The natural key is enforced by a table-level PRIMARY KEY, so the guarantee
-  lives in the schema, not in convention:
-    - raw.teams      PK (team_id)
-    - raw.matches    PK (match_id)
-    - raw.standings  PK (competition_code, season_id, team_id, matchday)
-* We upsert with ``INSERT ... ON CONFLICT (<pk>) DO UPDATE``. Re-loading a
-  record REPLACES the existing row, so a match that moved SCHEDULED -> FINISHED
-  overwrites its old row. There is exactly one current row per natural key —
-  we do not keep raw history / SCD here. Point-in-time lives downstream in
-  fact_standings (which is why matchday is part of the standings key: distinct
-  matchdays are distinct snapshots, not versions of one row).
+    raw.teams      PK (team_id)
+    raw.matches    PK (match_id)
+    raw.standings  PK (competition_code, season_id, team_id, matchday, standing_type)
 
-Ingestion stays thin: each raw row is the natural key (typed, for the
-constraint) plus the untouched API payload as JSON. dbt does all field-level
-work.
+Every load does INSERT ... ON CONFLICT (<pk>) DO UPDATE, so re-loading a record
+replaces the existing row. A match that moves SCHEDULED -> FINISHED overwrites
+its old row; there is exactly one current row per natural key. I deliberately
+don't keep raw history/SCD here. The only time-series we want (standings by
+matchday) is derived downstream in fact_standings.
+
+Ingestion stays thin: each raw row is just the natural key (typed, for the
+constraint) plus the untouched API payload as JSON. All field-level work is dbt's
+job.
 """
 
 from __future__ import annotations
@@ -28,9 +27,8 @@ from pathlib import Path
 
 import duckdb
 
-# --------------------------------------------------------------------------- #
-# DDL — the schema IS the idempotency guarantee.
-# --------------------------------------------------------------------------- #
+# The DDL is where idempotency actually comes from: the PRIMARY KEYs below make
+# a duplicate impossible even if the loader is called wrongly.
 _DDL: list[str] = [
     "CREATE SCHEMA IF NOT EXISTS raw;",
     """
@@ -79,9 +77,6 @@ class RawLoader:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self.con = duckdb.connect(self.db_path)
 
-    # ------------------------------------------------------------------ #
-    # Lifecycle
-    # ------------------------------------------------------------------ #
     def create_schema(self) -> None:
         for stmt in _DDL:
             self.con.execute(stmt)
@@ -103,9 +98,8 @@ class RawLoader:
             for table in ("teams", "matches", "standings")
         }
 
-    # ------------------------------------------------------------------ #
-    # Loads (one per endpoint). Each returns the number of rows upserted.
-    # ------------------------------------------------------------------ #
+    # One load method per endpoint; each returns how many rows it upserted.
+
     def load_teams(self, response: dict, competition_code: str, source_file: str) -> int:
         now = datetime.now()
         rows = [
@@ -151,18 +145,18 @@ class RawLoader:
     def load_standings(self, response: dict, competition_code: str, source_file: str) -> int:
         """Explode the standings snapshot to one row per team per table type.
 
-        A standings response is a single snapshot at season.currentMatchday and
-        may carry several tables per snapshot: TOTAL and (mid-season) HOME/AWAY,
-        plus one table per group for a tournament. We land EVERY type the source
-        returns — raw is a faithful copy. The TOTAL-vs-HOME/AWAY decision is made
-        downstream in dbt (stg_standings), where it is explicit and documented,
-        not silently at ingest. That is why `standing_type` is part of the key.
+        A standings response is a single snapshot at season.currentMatchday, and
+        it can carry several tables: TOTAL and (mid-season) HOME/AWAY, plus one
+        table per group for a tournament. I land every type the source returns so
+        raw stays a faithful copy. Picking TOTAL is a decision I make later in dbt
+        (stg_standings), where it's explicit, not silently at ingest, which is why
+        standing_type is part of the key.
         """
         now = datetime.now()
         season = response.get("season") or {}
         season_id = season.get("id")
-        # currentMatchday can be null (e.g. a tournament pre-kickoff); the PK
-        # column is NOT NULL, so coalesce to 0 and let dbt interpret it.
+        # currentMatchday can be null before a tournament kicks off. The PK column
+        # is NOT NULL, so coalesce to 0 and let dbt interpret it.
         matchday = season.get("currentMatchday") or 0
 
         rows = []
@@ -173,7 +167,7 @@ class RawLoader:
             for line in entry.get("table", []):
                 team_id = line.get("team", {}).get("id")
                 if team_id is None or season_id is None or standing_type is None:
-                    continue  # cannot form the natural key; skip defensively
+                    continue  # can't form the natural key, so skip it defensively
                 rows.append(
                     (
                         competition_code,

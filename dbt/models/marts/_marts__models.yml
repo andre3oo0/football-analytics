@@ -1,11 +1,12 @@
 version: 2
 
-# Marts tests: primary-key uniqueness/not-null, fact grain, accepted_values,
-# and relationships (FK) tests on every foreign key. Custom singular tests live
-# in dbt/tests/. Generic-test arguments are nested under `arguments:` (dbt 1.10+).
+# Tests here cover primary-key uniqueness/not-null, the fact grain,
+# accepted_values, and a relationships test on every foreign key. The custom
+# singular tests live in dbt/tests/. Test arguments sit under `arguments:`,
+# which is what dbt 1.10 wants.
 
 models:
-  # ------------------------------- dimensions ----------------------------- #
+  # dimensions
   - name: dim_competitions
     description: "One row per competition. competition_type = LEAGUE | TOURNAMENT."
     columns:
@@ -50,12 +51,12 @@ models:
       - name: season_label
         description: "e.g. '2024/25' (league) or '2026' (World Cup)."
 
-  # --------------------------------- facts -------------------------------- #
+  # facts
   - name: fact_matches
     description: >
-      One row per match across ALL competitions and seasons. stage distinguishes
-      league (REGULAR_SEASON) from World Cup rounds. Scores/measures nullable
-      until a match has a result; has_result flags FINISHED/AWARDED matches.
+      One row per match across all competitions and seasons. stage tells league
+      games (REGULAR_SEASON) apart from World Cup rounds. Scores and measures are
+      null until a match has a result; has_result flags FINISHED/AWARDED matches.
     columns:
       - name: match_id
         description: "Grain / degenerate key."
@@ -99,11 +100,11 @@ models:
 
   - name: fact_standings
     description: >
-      League standings DERIVED from match results (not the standings endpoint).
+      League standings derived from match results (not the standings endpoint).
       One row per team per matchday snapshot, cumulative up to and including that
-      matchday. LEAGUE competitions only; the World Cup is excluded by design.
-      Incremental (delete+insert on standing_key): a season is re-derived and
-      replaced when new results land.
+      matchday. Leagues only; the World Cup is left out on purpose. Incremental
+      (delete+insert on standing_key): a season is re-derived and replaced when
+      new results land.
     columns:
       - name: standing_key
         description: "Surrogate grain key: competition|season|team|matchday."

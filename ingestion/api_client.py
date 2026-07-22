@@ -1,14 +1,14 @@
 """Rate-limited, cache-first HTTP client for football-data.org.
 
-Two guarantees this module exists to provide:
+This module does two things I care about:
 
-1. **Never get IP-banned.** The free tier allows 10 requests/minute. We enforce
-   a minimum gap between *real* network calls (~8/min) and back off
-   exponentially on HTTP 429, honouring the server's Retry-After when given.
-
-2. **Never re-hit the API needlessly.** Every response is cached to disk as
-   JSON. By default a cached response is reused, so development re-runs cost
-   zero API calls. Pass ``force_refresh=True`` to re-fetch live data.
+1. Stay well under the rate limit so we never get IP-banned. The free tier
+   allows 10 requests/minute, so I keep a minimum gap between real network
+   calls (~8/min) and back off exponentially on HTTP 429, honouring the
+   server's Retry-After header when it sends one.
+2. Avoid hitting the API when we don't need to. Every response is cached to
+   disk as JSON, and a cached response is reused by default, so re-running
+   locally costs zero API calls. Pass force_refresh=True to re-fetch.
 """
 
 from __future__ import annotations
@@ -30,16 +30,16 @@ from .config import (
 def _enable_os_trust_store() -> None:
     """Verify TLS against the OS certificate store instead of certifi's bundle.
 
-    This keeps certificate verification fully ON while allowing the pipeline to
-    run behind SSL-inspecting corporate proxies, which present a locally-trusted
-    root CA that certifi does not know about. No-op if ``truststore`` is not
-    installed or injection fails.
+    Certificate verification stays on; this just lets the pipeline run behind an
+    SSL-inspecting corporate proxy, which presents a locally-trusted root CA that
+    certifi doesn't know about. It's a no-op if truststore isn't installed (e.g.
+    on a CI runner with normal public CAs), which is exactly what we want.
     """
     try:
         import truststore
 
         truststore.inject_into_ssl()
-    except Exception:  # pragma: no cover - best-effort, never fatal
+    except Exception:  # best-effort, never fatal
         pass
 
 
@@ -65,12 +65,9 @@ class FootballDataClient:
         self._session = requests.Session()
         if api_key:
             self._session.headers.update({"X-Auth-Token": api_key})
-        # Timestamp of the last *real* network call; 0 means "never".
+        # When the last real network call happened; 0 means never.
         self._last_request_ts: float = 0.0
 
-    # ------------------------------------------------------------------ #
-    # Public API
-    # ------------------------------------------------------------------ #
     def get_competition_resource(
         self,
         competition_code: str,
@@ -81,11 +78,11 @@ class FootballDataClient:
     ) -> dict:
         """Return the JSON for /competitions/{code}/{resource}.
 
-        ``season`` (the starting year, e.g. 2024 for 2024/25) selects a specific
-        season via the API's ?season= filter and is kept in a season-scoped cache
-        filename, so a historical season never overwrites the current-season
-        cache. Served from the on-disk cache unless it is missing or
-        force_refresh is set. Whatever we return is always also on disk as JSON.
+        season (the starting year, e.g. 2024 for 2024/25) picks a specific season
+        via the API's ?season= filter, and it goes into a season-scoped cache
+        filename so a historical pull never clobbers the current-season cache.
+        Served from the on-disk cache unless it's missing or force_refresh is set;
+        whatever we return is always also written to disk as JSON.
         """
         cache_path = self._cache_path(competition_code, resource, season)
 
@@ -104,7 +101,7 @@ class FootballDataClient:
             url += f"?season={season}"
         payload = self._request_with_backoff(url)
 
-        # Cache BEFORE returning so the load step reads a persisted artifact.
+        # Write the cache before returning, so the load step reads a real file.
         cache_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return payload
 
@@ -113,9 +110,6 @@ class FootballDataClient:
     ) -> Path:
         return self._cache_path(competition_code, resource, season)
 
-    # ------------------------------------------------------------------ #
-    # Internals
-    # ------------------------------------------------------------------ #
     def _cache_path(
         self, competition_code: str, resource: str, season: int | None = None
     ) -> Path:
@@ -123,7 +117,7 @@ class FootballDataClient:
         return self.cache_dir / f"{competition_code}_{resource}{suffix}.json"
 
     def _throttle(self) -> None:
-        """Sleep just long enough to keep >= min_interval between real calls."""
+        """Sleep just long enough to keep at least min_interval between calls."""
         elapsed = time.monotonic() - self._last_request_ts
         wait = self.min_interval - elapsed
         if self._last_request_ts and wait > 0:
@@ -156,7 +150,7 @@ class FootballDataClient:
                 time.sleep(wait)
                 continue
 
-            # 4xx other than 429 (bad key, unknown competition, ...) — no retry.
+            # Any other 4xx (bad key, unknown competition, ...) is not retryable.
             resp.raise_for_status()
 
         raise RateLimitError(
@@ -165,11 +159,11 @@ class FootballDataClient:
 
     @staticmethod
     def _retry_after_seconds(resp: requests.Response, attempt: int) -> float:
-        """Prefer the server's Retry-After header; else exponential backoff."""
+        """Use the server's Retry-After if present, otherwise exponential backoff."""
         header = resp.headers.get("Retry-After")
         if header:
             try:
-                return float(header) + 1.0  # +1s safety margin
+                return float(header) + 1.0  # small safety margin
             except ValueError:
                 pass
         return BACKOFF_BASE_SECONDS * (2 ** attempt)

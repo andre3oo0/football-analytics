@@ -1,31 +1,21 @@
-# ---------------------------------------------------------------------------
-# Secrets — the API key lives ONLY in .env (local) and a GitHub secret (CI).
-# ---------------------------------------------------------------------------
+# Secrets. The API key lives only in .env locally and in a GitHub secret in CI.
 .env
 
-# ---------------------------------------------------------------------------
-# Local warehouse — the single DuckDB file is a build artifact, never committed.
-# ---------------------------------------------------------------------------
+# Local DuckDB warehouse. It's a build artifact, always rebuildable from raw.
 *.duckdb
 *.duckdb.wal
 
-# ---------------------------------------------------------------------------
-# Raw API response cache — keep the folder in git, ignore its JSON contents.
-# ---------------------------------------------------------------------------
+# Cached raw API responses: keep the folder, ignore the JSON in it.
 data/raw/*
 !data/raw/.gitkeep
 
-# ---------------------------------------------------------------------------
 # dbt build artifacts
-# ---------------------------------------------------------------------------
 dbt/target/
 dbt/logs/
 dbt/dbt_packages/
 dbt/.user.yml
 
-# ---------------------------------------------------------------------------
 # Python
-# ---------------------------------------------------------------------------
 __pycache__/
 *.py[cod]
 .venv/
@@ -34,9 +24,7 @@ env/
 *.egg-info/
 .pytest_cache/
 
-# ---------------------------------------------------------------------------
-# OS / editor cruft
-# ---------------------------------------------------------------------------
+# OS / editor
 .DS_Store
 Thumbs.db
 .idea/
