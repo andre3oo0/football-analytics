@@ -1,0 +1,49 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Landed football-data.org API responses, loaded by the Python ingestion
+      layer. Each row is a natural key plus the untouched JSON payload; the
+      table PRIMARY KEY enforces idempotency (upsert, never append). All
+      field-level interpretation happens in the staging models below.
+    database: football          # DuckDB catalog = football.duckdb file stem
+    schema: raw
+
+    # Source freshness measures how stale OUR ingestion is (the scheduled
+    # pipeline should refresh the live leagues regularly). _loaded_at is set at
+    # load time by the loader.
+    freshness:
+      warn_after: {count: 24, period: hour}
+      error_after: {count: 72, period: hour}
+    loaded_at_field: _loaded_at
+
+    tables:
+      - name: teams
+        description: "One row per team, keyed by team_id."
+        columns:
+          - name: team_id
+            description: "football-data.org global team id (natural key)."
+          - name: payload
+            description: "Full team object as returned by /competitions/{id}/teams."
+      - name: matches
+        description: >
+          One row per match across ALL competitions (leagues + World Cup),
+          keyed by match_id. Scores are null until a match is played.
+        columns:
+          - name: match_id
+            description: "football-data.org global match id (natural key)."
+          - name: payload
+            description: "Full match object, incl. stage, status, score, teams."
+      - name: standings
+        description: >
+          One row per team per matchday snapshot per table type
+          (TOTAL/HOME/AWAY), keyed by
+          (competition_code, season_id, team_id, matchday, standing_type).
+          All table types are preserved; the TOTAL selection is a downstream
+          decision.
+        columns:
+          - name: standing_type
+            description: "API table type: TOTAL, HOME, or AWAY."
+          - name: payload
+            description: "One standings table row (position, points, goals, ...)."
