@@ -1,7 +1,8 @@
 version: 2
 
-# Phase 4 mart tests cover primary-key uniqueness/not-null and the fact grain.
-# Relationships (FK) tests and the custom singular tests are added in Phase 5.
+# Marts tests: primary-key uniqueness/not-null, fact grain, accepted_values,
+# and relationships (FK) tests on every foreign key. Custom singular tests live
+# in dbt/tests/. Generic-test arguments are nested under `arguments:` (dbt 1.10+).
 
 models:
   # ------------------------------- dimensions ----------------------------- #
@@ -9,63 +10,136 @@ models:
     description: "One row per competition. competition_type = LEAGUE | TOURNAMENT."
     columns:
       - name: competition_code
-        description: "PK."
+        description: "Primary key."
         data_tests: [unique, not_null]
+      - name: competition_name
+        description: "Human-readable competition name."
       - name: competition_type
+        description: "Analytical classification: LEAGUE or TOURNAMENT."
         data_tests:
           - accepted_values:
-              values: ['LEAGUE', 'TOURNAMENT']
+              arguments:
+                values: ['LEAGUE', 'TOURNAMENT']
 
   - name: dim_teams
-    description: "One row per team."
+    description: >
+      One row per team, unioned across every season/competition ingested
+      (team_id is globally unique in the source).
     columns:
       - name: team_id
-        description: "PK."
+        description: "Primary key."
         data_tests: [unique, not_null]
       - name: team_name
+        description: "Full team name."
         data_tests: [not_null]
 
   - name: dim_seasons
     description: "One row per competition-season."
     columns:
       - name: season_id
-        description: "PK (unique per competition)."
+        description: "Primary key (unique per competition)."
         data_tests: [unique, not_null]
       - name: competition_code
         description: "FK to dim_competitions."
-        data_tests: [not_null]
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_competitions')
+                field: competition_code
+      - name: season_label
+        description: "e.g. '2024/25' (league) or '2026' (World Cup)."
 
   # --------------------------------- facts -------------------------------- #
   - name: fact_matches
     description: >
-      One row per match across ALL competitions. stage distinguishes league vs
-      World Cup rounds. Scores/measures nullable until played.
+      One row per match across ALL competitions and seasons. stage distinguishes
+      league (REGULAR_SEASON) from World Cup rounds. Scores/measures nullable
+      until a match has a result; has_result flags FINISHED/AWARDED matches.
     columns:
       - name: match_id
         description: "Grain / degenerate key."
         data_tests: [unique, not_null]
       - name: competition_code
-        data_tests: [not_null]
+        description: "FK to dim_competitions."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_competitions')
+                field: competition_code
       - name: season_id
-        data_tests: [not_null]
+        description: "FK to dim_seasons."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_seasons')
+                field: season_id
       - name: home_team_id
-        data_tests: [not_null]
+        description: "FK to dim_teams."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_id
       - name: away_team_id
-        data_tests: [not_null]
+        description: "FK to dim_teams."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_id
+      - name: has_result
+        description: "True for FINISHED/AWARDED matches (a definitive outcome)."
+      - name: total_goals_ft
+        description: "Full-time home + away goals; null until played."
 
   - name: fact_standings
     description: >
-      One row per team per matchday snapshot (incremental, delete+insert on
-      standing_key). Re-fetched matchdays update in place; new matchdays append.
+      League standings DERIVED from match results (not the standings endpoint).
+      One row per team per matchday snapshot, cumulative up to and including that
+      matchday. LEAGUE competitions only; the World Cup is excluded by design.
+      Incremental (delete+insert on standing_key): a season is re-derived and
+      replaced when new results land.
     columns:
       - name: standing_key
         description: "Surrogate grain key: competition|season|team|matchday."
         data_tests: [unique, not_null]
       - name: competition_code
-        data_tests: [not_null]
+        description: "FK to dim_competitions."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_competitions')
+                field: competition_code
       - name: season_id
-        data_tests: [not_null]
+        description: "FK to dim_seasons."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_seasons')
+                field: season_id
       - name: team_id
-        data_tests: [not_null]
+        description: "FK to dim_teams."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_id
       - name: matchday
+        description: "Matchday this cumulative snapshot is taken at."
         data_tests: [not_null]
+      - name: played
+        description: "Cumulative games played up to and including this matchday."
+      - name: points
+        description: "Cumulative points (won*3 + drawn)."
+      - name: position
+        description: >
+          League position at this matchday. Tie-break: points desc,
+          goal_difference desc, goals_for desc.

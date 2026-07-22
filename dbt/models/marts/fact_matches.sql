@@ -34,5 +34,8 @@ select
     total_goals_ft,
     home_points,
     away_points,
-    is_played
+    has_result,
+
+    -- audit / incremental watermark carried from raw
+    _loaded_at
 from {{ ref('int_matches') }}

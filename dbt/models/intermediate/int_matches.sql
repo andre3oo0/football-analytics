@@ -27,7 +27,12 @@ select
     away_score_ht,
 
     -- derived, null-safe measures
-    (status = 'FINISHED')                                   as is_played,
+    -- has_result = the match has a definitive outcome and therefore counts
+    -- toward standings. FINISHED is the normal case; AWARDED is an officially
+    -- decided result (e.g. a forfeit with an awarded scoreline) and must count
+    -- too — excluding it would make a league table wrong. SCHEDULED (and any
+    -- other not-yet-decided status) is excluded.
+    (status in ('FINISHED', 'AWARDED'))                     as has_result,
     home_score_ft + away_score_ft                           as total_goals_ft,
     case when winner = 'HOME_TEAM' then 3
          when winner = 'DRAW'      then 1

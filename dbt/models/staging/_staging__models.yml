@@ -1,17 +1,15 @@
 version: 2
 
-# Phase 3 tests are deliberately staging-scoped: primary-key uniqueness /
-# not-null and accepted_values on the enum-like columns. Relationships tests,
-# composite-key uniqueness, and the custom singular tests come with the marts
-# in Phase 5.
+# Phase 3 tests are staging-scoped: primary-key uniqueness / not-null and
+# accepted_values on the enum-like columns. Relationships tests and the custom
+# singular tests live with the marts (Phase 5).
 #
-# accepted_values policy: status and stage are restricted to the values
-# OBSERVED in the current data, NOT the documented API superset. A test that
-# accepts everything the docs allow catches nothing; we WANT these to fail
-# loudly if an unexpected value appears, so we learn the data shifted and can
-# investigate. Widening a list when a legitimate new value shows up is then a
-# conscious one-line change with a git trail. (winner/duration/standing_type
-# are already at their true observed/complete sets.)
+# accepted_values policy: status and stage are restricted to the values OBSERVED
+# in the data, NOT the documented API superset. A test that accepts everything
+# the docs allow catches nothing; we WANT these to fail loudly if an unexpected
+# value appears, so we learn the data shifted and can investigate. Widening a
+# list for a legitimate new value is then a conscious one-line change with a git
+# trail. (Test arguments are nested under `arguments:` per dbt 1.10+.)
 
 models:
   - name: stg_teams
@@ -27,14 +25,14 @@ models:
         data_tests:
           - not_null
       - name: competition_code
-        description: "Competition this team was pulled under (PL, WC, ...)."
+        description: "A competition this team was pulled under (PL, WC, ...)."
         data_tests:
           - not_null
 
   - name: stg_matches
     description: >
       Thin typed view of raw.matches (1:1). One row per match across all
-      competitions. Scores nullable until played.
+      competitions and seasons. Scores nullable until played.
     columns:
       - name: match_id
         description: "Match natural key."
@@ -44,47 +42,54 @@ models:
       - name: competition_code
         data_tests:
           - not_null
+      - name: season_id
+        description: "Season id (unique per competition)."
+        data_tests:
+          - not_null
       - name: status
         description: "Match lifecycle status."
         data_tests:
           - not_null
-          # Observed set only — fail loudly if a new status appears (see policy above).
+          # Observed set only. AWARDED = an officially decided result (forfeit).
           - accepted_values:
-              values: ['SCHEDULED', 'FINISHED']
+              arguments:
+                values: ['SCHEDULED', 'FINISHED', 'AWARDED']
       - name: stage
         description: >
           Competition stage. REGULAR_SEASON for leagues; knockout/group values
           for the World Cup. Central to the single fact_matches grain.
         data_tests:
           - not_null
-          # Observed set only (REGULAR_SEASON + the WC ladder values actually
-          # present). Fail loudly if a new stage appears (see policy above).
           - accepted_values:
-              values: ['REGULAR_SEASON', 'GROUP_STAGE', 'LAST_32', 'LAST_16',
-                       'QUARTER_FINALS', 'SEMI_FINALS', 'THIRD_PLACE', 'FINAL']
+              arguments:
+                values: ['REGULAR_SEASON', 'GROUP_STAGE', 'LAST_32', 'LAST_16',
+                         'QUARTER_FINALS', 'SEMI_FINALS', 'THIRD_PLACE', 'FINAL']
       - name: winner
         description: "Full-time winner: HOME_TEAM / AWAY_TEAM / DRAW; null if unplayed."
         data_tests:
           - accepted_values:
-              values: ['HOME_TEAM', 'AWAY_TEAM', 'DRAW']
+              arguments:
+                values: ['HOME_TEAM', 'AWAY_TEAM', 'DRAW']
       - name: duration
         description: "How the result was decided."
         data_tests:
           - accepted_values:
-              values: ['REGULAR', 'EXTRA_TIME', 'PENALTY_SHOOTOUT']
+              arguments:
+                values: ['REGULAR', 'EXTRA_TIME', 'PENALTY_SHOOTOUT']
 
   - name: stg_standings
     description: >
-      Thin typed view of raw.standings (1:1). One row per team per matchday
-      snapshot per table type. Preserves all types; exposes is_total_standing
-      so the TOTAL decision is explicit before it is enforced downstream.
+      Thin typed view of raw.standings (1:1). Preserves all table types and
+      exposes is_total_standing. NOTE: nothing downstream depends on this model
+      any more — fact_standings is derived from match results instead. Kept for
+      lineage completeness and as a faithful copy of the standings endpoint.
     columns:
       - name: competition_code
         data_tests: [not_null]
       - name: season_id
         data_tests: [not_null]
       - name: team_id
-        description: "Team natural key (FK to stg_teams in later layers)."
+        description: "Team natural key."
         data_tests: [not_null]
       - name: matchday
         data_tests: [not_null]
@@ -93,7 +98,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ['TOTAL', 'HOME', 'AWAY']
+              arguments:
+                values: ['TOTAL', 'HOME', 'AWAY']
       - name: is_total_standing
-        description: "True for the TOTAL table (the real league/group table)."
+        description: "True for the TOTAL table."
         data_tests: [not_null]
