@@ -9,6 +9,10 @@
 data/raw/*
 !data/raw/.gitkeep
 
+# Parquet exports for Power BI: keep the folder, ignore the files.
+exports/*.parquet
+!exports/.gitkeep
+
 # dbt build artifacts
 dbt/target/
 dbt/logs/
