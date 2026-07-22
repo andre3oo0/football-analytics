@@ -8,8 +8,8 @@ The point of this project is the **transformation, testing, documentation, and
 orchestration layers**, not the final report. The dimensional model, the dbt
 tests, and the "does it fail loudly?" question are the deliverable.
 
-> **Status:** 🚧 Under construction — being built in phases. See
-> [Build phases](#build-phases) for what is done and what is next.
+> **Status:** ✅ Complete — all six build phases landed (ingestion → dbt star
+> schema → tests → docs → CI). See [Build phases](#build-phases).
 
 ---
 
@@ -274,11 +274,32 @@ derived from. Ingestion is season-aware, and cached per season.
 - **`dbt docs generate`** resolves the full lineage DAG:
   `seed + raw sources → staging → intermediate → marts`.
 
+### Phase 6 — orchestration & final pass
+
+- **CI pulls the live season only, never the frozen backfill.** Re-pulling the
+  static completed 2024/25 season nightly would burn API budget for data that
+  cannot change. The schedule pulls the current season (`--refresh`, no
+  `--season`); the historical backfill is a one-off manual ingest.
+- **`dbt build`, not separate run+test.** One pass runs each model then its
+  tests in DAG order and exits non-zero on the first failing test — the
+  simplest "fail loudly" contract for CI.
+- **Single-writer discipline carried into CI.** Ingest and dbt are separate
+  sequential steps (separate processes), and a `concurrency` group stops two
+  scheduled runs overlapping — the same DuckDB single-writer rule that bit us
+  in Phase 3, now enforced by the workflow.
+- **TLS degrades safely on the runner.** `truststore` uses the OS trust store;
+  on `ubuntu-latest` that is the public-CA bundle, so the corporate-proxy
+  workaround from local dev becomes a normal public-CA verification with no code
+  change. Verified by running the exact CI command sequence against a fresh
+  live-only warehouse locally (green build, `fact_standings` empty — the honest
+  off-season result).
+- **Honesty over polish.** The docs state plainly that a run tonight processes
+  fixtures with no results yet, so standings are empty until the season starts.
+  An interviewer asking "what does a run do tonight?" gets a true answer.
+
 ---
 
 ## Local setup & run
-
-> Full run instructions are filled in as each phase lands. Skeleton below.
 
 ```bash
 # 1. Create and activate a virtual environment (Python 3.11+)
@@ -310,6 +331,63 @@ cd ..
 
 ---
 
+## Orchestration (GitHub Actions)
+
+[`.github/workflows/pipeline.yml`](.github/workflows/pipeline.yml) runs the whole
+pipeline on a schedule (`cron: 0 6 * * *`) and on manual dispatch.
+
+**Steps, strictly sequential** (single-writer DuckDB discipline — each step is
+its own process that closes the file before the next opens it):
+
+1. `pip install -r requirements.txt`
+2. **ingest** the live current season — `python -m ingestion.run --refresh`
+3. **`dbt build`** (run models + run tests in one pass)
+4. `dbt docs generate` + upload docs artifact
+
+**Fail loudly.** `dbt build` exits non-zero if *any* test fails, so a data-quality
+regression turns the job red. Ingestion also exits non-zero if any endpoint fails.
+
+**Secret handling.** The API key comes from a GitHub repository secret,
+`FOOTBALL_DATA_API_KEY`, injected as an env var. It is never committed (only
+`.env.example` is in git), never echoed, and GitHub masks it in logs.
+
+**TLS on the runner.** The client calls `truststore.inject_into_ssl()`, which uses
+the *runner's* OS trust store. `ubuntu-latest` carries the standard public CAs (no
+corporate root exists there), so it degrades to ordinary public-CA verification —
+verification stays on, and the corporate-proxy case from local dev simply doesn't
+apply. A successful ingest step is the proof.
+
+**What CI actually pulls (and what a run does tonight).** The schedule pulls only
+the **live current season** (`--refresh`, no `--season`). It deliberately does
+**not** re-pull the frozen, completed **2024/25** backfill — that data never
+changes, so re-fetching it nightly would waste API budget for nothing.
+
+> **Honest off-season note.** As of now the leagues are in the **2026/27
+> off-season**: a scheduled pull fetches fixtures with no results yet, so
+> `fact_standings` (derived from *finished* matches) is legitimately **empty**
+> until the season kicks off. Nothing is faked to hide this. The pipeline is
+> complete and correct, and the *same* workflow will produce real matchday
+> standings with no code change once 2026/27 begins. The incremental behaviour is
+> demonstrated locally against the backfilled, completed **2024/25** season (which
+> is why that season was ingested) — not against live data, because no live
+> results exist yet.
+
+### Running it on GitHub
+
+```
+# 1. Create a repo and push
+git remote add origin https://github.com/<you>/football-analytics.git
+git push -u origin main
+
+# 2. Add the API key as a repository secret (never commit it)
+#    Settings ▸ Secrets and variables ▸ Actions ▸ New repository secret
+#    Name: FOOTBALL_DATA_API_KEY   Value: <your football-data.org key>
+#    (or with the gh CLI:)  gh secret set FOOTBALL_DATA_API_KEY
+
+# 3. Trigger it: Actions ▸ "football-data-pipeline" ▸ Run workflow
+#    (or wait for the 06:00 UTC schedule)
+```
+
 ## Build phases
 
 - [x] **Phase 1** — repo scaffold (folders, `.gitignore`, `.env.example`,
@@ -322,12 +400,46 @@ cd ..
       `fact_standings` with delete+insert)
 - [x] **Phase 5** — tests (generic + singular) + descriptions + `dbt docs`;
       `fact_standings` reworked to be match-derived
-- [ ] **Phase 6** — GitHub Actions orchestration + final README pass
+- [x] **Phase 6** — GitHub Actions orchestration (scheduled + manual, fail-loud)
+      + final README pass
 
 ---
 
 ## Pipeline lineage (DAG)
 
-<!-- Phase 5: paste the `dbt docs` lineage graph screenshot here. -->
+The rendered `dbt docs` lineage graph (sources & seed → staging → intermediate →
+marts, with the singular tests hanging off the facts):
 
-_DAG screenshot goes here once the dbt models exist._
+![dbt docs lineage DAG](docs/lineage_dag.png)
+
+The same lineage as a text diagram (renders inline on GitHub):
+
+```mermaid
+flowchart LR
+  subgraph raw["raw sources"]
+    rt[teams]; rm[matches]; rs[standings]
+  end
+  sc([seed_competitions])
+
+  rt --> stg_teams
+  rm --> stg_matches
+  rs --> stg_standings
+
+  stg_matches --> int_matches
+  stg_matches --> int_seasons
+
+  sc --> dim_competitions
+  stg_teams --> dim_teams
+  int_seasons --> dim_seasons
+  int_matches --> fact_matches
+  fact_matches --> fact_standings
+  dim_competitions --> fact_standings
+
+  stg_standings -.->|kept for lineage/freshness; not consumed| x((·))
+
+  classDef mart fill:#d5e8d4,stroke:#2d6a2d;
+  class dim_competitions,dim_teams,dim_seasons,fact_matches,fact_standings mart;
+```
+
+> For the interactive, clickable graph: `cd dbt && dbt docs generate
+> --profiles-dir . && dbt docs serve --profiles-dir .`
