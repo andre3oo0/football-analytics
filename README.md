@@ -119,6 +119,45 @@ Endpoints per competition: `/competitions/{id}/teams`,
 - **The DuckDB file is a build artifact** (`*.duckdb` ignored) — the warehouse
   is always rebuildable from raw JSON + dbt, so it never belongs in git.
 
+### Phase 2 — ingestion
+
+- **Raw = the natural key + the untouched payload as JSON**, not a flattened
+  set of typed columns. Tradeoff: flattening in Python would make ingestion
+  brittle to any API field change and would smear interpretation into the EL
+  step. Landing the raw JSON keyed by its natural key keeps ingestion generic
+  ("land it, don't read it") and pushes *all* field-level rename/cast into dbt
+  staging — which is exactly where the spec wants that logic to live.
+- **Idempotency is enforced by a table PRIMARY KEY, not by convention.** Each
+  raw table declares its natural key as a PK; loads use
+  `INSERT ... ON CONFLICT (<pk>) DO UPDATE`. A duplicate can therefore never
+  exist even if the loader is called wrongly — the database rejects it.
+    - `raw.teams` PK `(team_id)`
+    - `raw.matches` PK `(match_id)`
+    - `raw.standings` PK `(competition_code, season_id, team_id, matchday)`
+- **One current row per match — no raw SCD.** A re-fetched match that moved
+  `SCHEDULED → FINISHED` overwrites its row. Point-in-time history lives only
+  in `fact_standings` downstream, which is why `matchday` is part of the
+  standings key: a new matchday is a new snapshot, not a new version of an
+  existing row.
+- **Standings: only `type = 'TOTAL'` rows are landed.** The API returns
+  TOTAL/HOME/AWAY splits; the stated natural key has no `type`, and
+  `fact_standings` is at team-per-matchday grain, so HOME/AWAY are dropped at
+  ingest. `currentMatchday` can be null pre-kickoff → coalesced to `0` (the PK
+  column is `NOT NULL`).
+- **Cache-first by default; `--refresh` to hit the API.** Every response is
+  written to `data/raw/` *before* loading. Re-runs cost zero API calls unless
+  `--refresh` is passed, so development never risks the rate limit.
+- **Rate limiting is defensive by design:** ~8 req/min (7.5s min gap between
+  real calls) against a 10/min hard cap, plus exponential backoff honouring
+  `Retry-After` on HTTP 429. An IP ban is impossible.
+- **TLS verification via the OS trust store (`truststore`).** The dev network
+  does SSL inspection (a corporate root CA). Rather than the insecure
+  `verify=False`, we verify against the OS store where that root is trusted —
+  a no-op on normal networks. Verification stays ON everywhere.
+- **The run fails loudly but finishes what it can:** a single unavailable
+  endpoint is reported and skipped, and the process exits non-zero if anything
+  failed.
+
 <!-- Later phases: why incremental fact_standings, why singular tests chosen,
      what a pipeline failure looks like, etc. -->
 
@@ -140,7 +179,9 @@ pip install -r requirements.txt
 cp .env.example .env             # then paste your football-data.org key
 
 # 4. Ingest raw data           (Phase 2)
-# python -m ingestion.run
+python -m ingestion.run              # cache-first: no API calls if already cached
+# python -m ingestion.run --refresh  # re-fetch live data from the API
+# python -m ingestion.run --competitions PL SA   # subset
 
 # 5. Transform + test          (Phases 3–5)
 # cd dbt && dbt run && dbt test
@@ -155,8 +196,8 @@ cp .env.example .env             # then paste your football-data.org key
 
 - [x] **Phase 1** — repo scaffold (folders, `.gitignore`, `.env.example`,
       dependencies, README skeleton, git init + first commit)
-- [ ] **Phase 2** — ingestion (fetch + JSON cache + rate limit + backoff +
-      idempotent load into DuckDB `raw` schema)
+- [x] **Phase 2** — ingestion (fetch + JSON cache + rate limit + backoff +
+      idempotent upsert-by-natural-key into DuckDB `raw` schema)
 - [ ] **Phase 3** — dbt project init + staging models + sources
 - [ ] **Phase 4** — intermediate + marts (star schema, incremental
       `fact_standings`)

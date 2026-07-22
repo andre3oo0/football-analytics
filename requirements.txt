@@ -4,6 +4,8 @@
 requests>=2.31,<3.0          # HTTP client for the football-data.org REST API
 python-dotenv>=1.0,<2.0      # Load FOOTBALL_DATA_API_KEY from a local .env file
 duckdb>=1.1,<2.0             # Local single-file analytical warehouse
+truststore>=0.9,<1.0         # Verify TLS against the OS trust store (works behind
+                             # SSL-inspecting corporate proxies; no-op elsewhere)
 
 # ---------------------------------------------------------------------------
 # Transformation / testing / docs — dbt on top of DuckDB.
