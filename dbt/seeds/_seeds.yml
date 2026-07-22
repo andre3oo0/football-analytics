@@ -1,0 +1,18 @@
+version: 2
+
+seeds:
+  - name: seed_competitions
+    description: >
+      Static reference data: the competitions in scope and their analytical
+      type (LEAGUE vs TOURNAMENT). Hand-maintained; source of dim_competitions.
+    columns:
+      - name: competition_code
+        description: "football-data.org competition code (PK)."
+        data_tests:
+          - unique
+          - not_null
+      - name: competition_type
+        description: "Our classification."
+        data_tests:
+          - accepted_values:
+              values: ['LEAGUE', 'TOURNAMENT']

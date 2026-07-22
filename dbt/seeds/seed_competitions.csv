@@ -1,0 +1,7 @@
+competition_code,competition_name,competition_type
+PL,Premier League,LEAGUE
+PD,La Liga,LEAGUE
+BL1,Bundesliga,LEAGUE
+SA,Serie A,LEAGUE
+FL1,Ligue 1,LEAGUE
+WC,FIFA World Cup 2026,TOURNAMENT

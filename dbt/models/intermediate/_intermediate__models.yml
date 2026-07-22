@@ -1,0 +1,32 @@
+version: 2
+
+models:
+  - name: int_seasons
+    description: >
+      One row per competition-season, deduped from the season object repeated
+      across stg_matches. Adds a human-readable season_label. Feeds dim_seasons.
+    columns:
+      - name: season_id
+        description: "Season natural key (unique per competition)."
+        data_tests: [not_null]
+      - name: competition_code
+        data_tests: [not_null]
+
+  - name: int_standings_total
+    description: >
+      stg_standings filtered to the TOTAL table only — the explicit, documented
+      point at which HOME/AWAY are excluded. One row per team per matchday
+      snapshot. Feeds the incremental fact_standings.
+    columns:
+      - name: team_id
+        data_tests: [not_null]
+      - name: matchday
+        data_tests: [not_null]
+
+  - name: int_matches
+    description: >
+      Match-level business logic on top of stg_matches: null-safe measures
+      (total goals, points per side) and an is_played flag. Feeds fact_matches.
+    columns:
+      - name: match_id
+        data_tests: [unique, not_null]

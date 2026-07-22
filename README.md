@@ -189,8 +189,49 @@ Endpoints per competition: `/competitions/{id}/teams`,
   other in a shared warehouse; that risk does not exist in a single local
   DuckDB file, so the cleaner names win for a readable lineage DAG.
 
-<!-- Later phases: why incremental fact_standings, why singular tests chosen,
-     what a pipeline failure looks like, etc. -->
+### Phase 4 — intermediate & marts (the star schema)
+
+- **One `fact_matches` for leagues AND the World Cup.** The grain is identical
+  (a match is a match) and the interesting questions are cross-competition
+  ("goals per matchday", "results by stage"). Splitting by competition would
+  fragment that grain and force UNIONs for any cross-competition answer. The
+  `stage` column + the competition FK carry the league/tournament distinction
+  instead. Scores/measures are nullable and never fabricated to 0.
+- **The TOTAL filter lives in `int_standings_total`** — a single documented
+  `where is_total_standing`. Raw preserves all types, staging flags them, the
+  intermediate layer makes the exclusion; it is auditable in one place.
+- **`dim_competitions` comes from a seed**, because `competition_type`
+  (LEAGUE vs TOURNAMENT) is our analytical classification, not a source field,
+  and the list is small static reference data — the canonical use of a dbt
+  seed. **`dim_seasons` is derived from the match payload's season object**
+  (real source attributes: dates, current matchday); `season_id` is unique per
+  competition, so it is the PK. **`dim_teams`** is straight from `stg_teams`,
+  already unique on `team_id`.
+- **`fact_standings` is incremental. This is the reasoned centrepiece:**
+  - **`unique_key = standing_key`** (`competition|season|team|matchday`).
+  - **`incremental_strategy = delete+insert`.** `append` would duplicate a
+    re-fetched matchday; `delete+insert` deletes every target row whose
+    `standing_key` is in the incoming batch then inserts the batch, so a
+    re-fetched in-progress matchday is **replaced in place** while a brand-new
+    matchday is inserted. `merge` would also work but adds per-column update SQL
+    for no benefit on a single surrogate key.
+  - **Watermark:** later runs only pull rows with `_loaded_at` newer than the
+    max already stored. Every raw upsert bumps `_loaded_at`, so a re-fetched
+    matchday is always picked up.
+  - **First run vs later runs:** the first run (or `--full-refresh`) has no
+    table yet, so `is_incremental()` is false and the whole history builds;
+    later runs apply the watermark filter and delete+insert.
+  - **Proven:** mutated one raw snapshot's points `85 → 999`, ran incrementally
+    → the `(team, matchday)` row updated in place, `rows_for_key = 1` (no
+    duplicate), `total = 144` unchanged; restored → back to `85`.
+- **Single-writer discipline:** every step (ingest, each `dbt` invocation, each
+  ad-hoc query) is its own process that opens and closes the DuckDB file before
+  the next starts. DuckDB allows only one writer; two processes opening the file
+  at once is what made a finished job look "hung" earlier. Phase 6 CI keeps the
+  same strictly-sequential shape.
+
+<!-- Later phases: why singular tests chosen, what a pipeline failure looks
+     like, etc. -->
 
 ---
 
@@ -234,8 +275,8 @@ cd ..
       idempotent upsert-by-natural-key into DuckDB `raw` schema)
 - [x] **Phase 3** — dbt project init + staging models + sources (freshness,
       descriptions, 1:1 typed views)
-- [ ] **Phase 4** — intermediate + marts (star schema, incremental
-      `fact_standings`)
+- [x] **Phase 4** — intermediate + marts (star schema, incremental
+      `fact_standings` with delete+insert)
 - [ ] **Phase 5** — tests (generic + singular) + descriptions + `dbt docs`
 - [ ] **Phase 6** — GitHub Actions orchestration + final README pass
 

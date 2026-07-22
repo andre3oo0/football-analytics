@@ -18,6 +18,12 @@ select
     competition_code,
     (payload ->> '$.season.id')::bigint    as season_id,
 
+    -- season context (identical across a season's matches; deduped downstream
+    -- into dim_seasons)
+    (payload ->> '$.season.startDate')::date        as season_start_date,
+    (payload ->> '$.season.endDate')::date          as season_end_date,
+    (payload ->> '$.season.currentMatchday')::integer as season_current_matchday,
+
     -- scheduling / classification
     (payload ->> '$.utcDate')::timestamp   as kickoff_utc,
     payload ->> '$.status'                  as status,
