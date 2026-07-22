@@ -165,6 +165,30 @@ Endpoints per competition: `/competitions/{id}/teams`,
   endpoint is reported and skipped, and the process exits non-zero if anything
   failed.
 
+### Phase 3 — dbt project, staging & sources
+
+- **Sources point at the `raw` schema with freshness + descriptions.** Freshness
+  is measured on `_loaded_at` (warn 24h / error 72h) — it answers "did the
+  scheduled pipeline actually refresh the live leagues recently?", which is the
+  orchestration signal Phase 6 depends on.
+- **Staging is strictly 1:1 with raw: unpack JSON, rename, cast — nothing
+  else.** Row counts match raw exactly (144 / 1856 / 144). No joins, no dedup,
+  no filtering. This is enforced by reading, not asserted — the models contain
+  only `source -> select` with column expressions.
+- **The TOTAL-vs-HOME/AWAY decision is surfaced, not enforced, in staging.**
+  `stg_standings` keeps every row and adds a documented `is_total_standing`
+  flag. The actual filter (`where is_total_standing`) lands in the intermediate
+  layer in Phase 4 — so the choice is explicit and testable, and staging never
+  drops a row it received from raw.
+- **`profiles.yml` is committed** (it holds only the DuckDB file path, no
+  secrets) so the project is reproducible. dbt is run from `dbt/` with
+  `--profiles-dir .`.
+- **A `generate_schema_name` macro** gives clean schema names
+  (`staging` / `intermediate` / `marts`) instead of dbt's default
+  `main_staging` concatenation. The default guards against devs clobbering each
+  other in a shared warehouse; that risk does not exist in a single local
+  DuckDB file, so the cleaner names win for a readable lineage DAG.
+
 <!-- Later phases: why incremental fact_standings, why singular tests chosen,
      what a pipeline failure looks like, etc. -->
 
@@ -190,11 +214,14 @@ python -m ingestion.run              # cache-first: no API calls if already cach
 # python -m ingestion.run --refresh  # re-fetch live data from the API
 # python -m ingestion.run --competitions PL SA   # subset
 
-# 5. Transform + test          (Phases 3–5)
-# cd dbt && dbt run && dbt test
+# 5. Transform + test          (Phase 3+; run from the dbt/ dir)
+cd dbt
+dbt build --profiles-dir .           # run models + tests together
+dbt source freshness --profiles-dir . # check ingestion recency
+cd ..
 
 # 6. Generate docs / lineage   (Phase 5)
-# cd dbt && dbt docs generate && dbt docs serve
+# cd dbt && dbt docs generate --profiles-dir . && dbt docs serve --profiles-dir .
 ```
 
 ---
@@ -205,7 +232,8 @@ python -m ingestion.run              # cache-first: no API calls if already cach
       dependencies, README skeleton, git init + first commit)
 - [x] **Phase 2** — ingestion (fetch + JSON cache + rate limit + backoff +
       idempotent upsert-by-natural-key into DuckDB `raw` schema)
-- [ ] **Phase 3** — dbt project init + staging models + sources
+- [x] **Phase 3** — dbt project init + staging models + sources (freshness,
+      descriptions, 1:1 typed views)
 - [ ] **Phase 4** — intermediate + marts (star schema, incremental
       `fact_standings`)
 - [ ] **Phase 5** — tests (generic + singular) + descriptions + `dbt docs`
