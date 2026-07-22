@@ -139,11 +139,18 @@ Endpoints per competition: `/competitions/{id}/teams`,
   in `fact_standings` downstream, which is why `matchday` is part of the
   standings key: a new matchday is a new snapshot, not a new version of an
   existing row.
-- **Standings: only `type = 'TOTAL'` rows are landed.** The API returns
-  TOTAL/HOME/AWAY splits; the stated natural key has no `type`, and
-  `fact_standings` is at team-per-matchday grain, so HOME/AWAY are dropped at
-  ingest. `currentMatchday` can be null pre-kickoff → coalesced to `0` (the PK
-  column is `NOT NULL`).
+- **Standings: raw preserves EVERY table type the source returns.** The API's
+  standings response can carry TOTAL and (mid-season) HOME/AWAY tables; raw
+  lands all of them, so `standing_type` is part of the key
+  `(competition_code, season_id, team_id, matchday, standing_type)`. Filtering
+  to TOTAL is a *transformation* decision and is made explicitly downstream in
+  `stg_standings`, not silently at ingest — dropping data to fit a schema is
+  data loss in the wrong layer. (Note: for these competitions / the current
+  pre-season the API returns only TOTAL, verified against the live endpoint;
+  raw therefore contains only TOTAL today, but the loader no longer discards
+  anything, so HOME/AWAY are captured automatically if/when the source
+  provides them.) `currentMatchday` can be null pre-kickoff → coalesced to `0`
+  (the PK column is `NOT NULL`).
 - **Cache-first by default; `--refresh` to hit the API.** Every response is
   written to `data/raw/` *before* loading. Re-runs cost zero API calls unless
   `--refresh` is passed, so development never risks the rate limit.
