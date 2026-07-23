@@ -67,15 +67,18 @@ data. Primary key `competition_code`. Six rows.
 One row per team, from `stg_teams`. `team_id` is globally unique in the source,
 so no dedup is needed. Because teams are ingested per season, the table is the
 union of every team seen across the seasons loaded (a club relegated after
-2024/25 still appears, so its historical matches resolve their foreign keys).
-Primary key `team_id`. 164 rows.
+2024/25 still appears, so its historical matches resolve their foreign keys). A
+club that leaves and later returns — e.g. Ipswich Town, in 2024/25 and again in
+2026/27 but not 2025/26 — resolves to exactly one row, because `team_id` is
+stable across seasons. Primary key `team_id`. 169 rows.
 
 ### dim_seasons
 
 One row per competition-season, from `int_seasons`. `season_id` is unique per
 competition, so it is the primary key. Includes `season_label` (for example
 "2024/25" for a league, "2026" for the World Cup), start and end dates, and the
-current matchday. 11 rows (two per league plus the World Cup).
+current matchday. 16 rows (three per league — 2024/25, 2025/26, 2026/27 — plus
+the World Cup).
 
 ## Facts
 
@@ -89,7 +92,7 @@ Degenerate dimensions carried on the fact: `stage`, `group_name`, `status`,
 `matchday`, `kickoff_utc`, `winner`, `duration`. Measures: `home_score_ft`,
 `away_score_ft`, `home_score_ht`, `away_score_ht`, `total_goals_ft`,
 `home_points`, `away_points`, and the `has_result` flag. Scores and measures are
-null until a match has a result and are never coalesced to zero. 3,608 rows.
+null until a match has a result and are never coalesced to zero. 5,360 rows.
 
 `stage` is what separates league matches (`REGULAR_SEASON`) from the World Cup
 rounds (`GROUP_STAGE`, `LAST_32`, `LAST_16`, `QUARTER_FINALS`, `SEMI_FINALS`,
@@ -99,8 +102,9 @@ rounds (`GROUP_STAGE`, `LAST_32`, `LAST_16`, `QUARTER_FINALS`, `SEMI_FINALS`,
 ### fact_standings
 
 One row per team per matchday snapshot, cumulative up to and including that
-matchday. Leagues only; the World Cup is excluded by design. 3,504 rows (all from
-the completed 2024/25 season).
+matchday. Leagues only; the World Cup is excluded by design. 7,008 rows (from the
+completed 2024/25 and 2025/26 seasons, a separate progression per season; 3,504
+each). The live 2026/27 season contributes no rows until it produces results.
 
 Primary key `standing_key` = `competition|season|team|matchday`. Foreign keys:
 `competition_code`, `season_id`, `team_id`. Measures: `played`, `won`, `drawn`,

@@ -136,7 +136,8 @@ failed. That way it does as much as it can and still fails loudly for CI.
 
 - Live 2026/27 for all five leagues and the World Cup (default pull).
 - Completed 2024/25 for the five leagues (backfilled, teams + matches only).
+- Completed 2025/26 for the five leagues (backfilled, teams + matches only).
 
-The 2024/25 backfill is what gives `fact_standings` finished results to work
-from. CI only pulls the live season; it does not re-pull the frozen backfill,
-which cannot change.
+The two completed backfills (2024/25 and 2025/26) are what give `fact_standings`
+finished results to work from. CI only pulls the live season; it does not re-pull
+the frozen backfills, which cannot change.

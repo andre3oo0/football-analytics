@@ -57,8 +57,8 @@ exercised yet because the repo has not been pushed.
 ## What CI pulls, and what a run does today
 
 CI pulls only the live current season (`--refresh`, no `--season`). It does not
-re-pull the completed 2024/25 backfill, because that data cannot change and
-re-fetching it nightly would waste API budget.
+re-pull the completed 2024/25 or 2025/26 backfills, because that data cannot
+change and re-fetching it nightly would waste API budget.
 
 Because the leagues are in the 2026/27 off-season, a run today ingests fixtures
 with no results, builds everything, and passes its tests, but `fact_standings`

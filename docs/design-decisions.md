@@ -47,8 +47,10 @@ rather than reading the standings endpoint.
 **Why.** The endpoint returns a single current table, and in the off-season it
 returns last season's final numbers stamped with the new season at matchday 1,
 which is self-contradictory. Deriving from results is internally consistent and
-gives a real week-by-week progression. As a check, the derived 2024/25 Premier
-League table matches reality (Liverpool champions on 84 points).
+gives a real week-by-week progression. As a check, the derived tables match
+reality: 2024/25 Premier League (Liverpool champions on 84 points) and 2025/26
+Premier League (Arsenal champions on 85 points), each confirmed row-for-row
+against the published final table.
 
 **Consequence.** The standings endpoint data is still landed in `raw.standings`
 (harmless), but nothing downstream uses it, so `stg_standings` is a leaf.
@@ -59,8 +61,8 @@ League table matches reality (Liverpool champions on 84 points).
 
 **Why.** An AWARDED match (a forfeit with an official scoreline) is a real,
 decided result. Excluding it would make a league table wrong by a game. This is a
-deliberate widening of "only played matches count". Two 2024/25 matches are
-affected.
+deliberate widening of "only played matches count". Three matches are affected:
+two in 2024/25 (BL1, FL1) and one in 2025/26 (FL1).
 
 **Reversible.** Change the predicate in `int_matches.sql` if strict
 FINISHED-only is preferred.
@@ -106,14 +108,17 @@ to look. Widening the list is then a conscious, reviewable change.
 
 ## Backfill one completed season
 
-**Decision.** Ingest the completed 2024/25 league season alongside the live
-2026/27 data.
+**Decision.** Ingest the completed 2024/25 and 2025/26 league seasons alongside
+the live 2026/27 data.
 
 **Why.** The leagues are mid-off-season with no finished matches, so a
-match-derived standings table would be empty. The backfill supplies real finished
+match-derived standings table would be empty. The backfills supply real finished
 results to build and demonstrate against, while the live season is kept for the
 scheduling story. `dim_teams` unions teams across seasons so relegated sides
-still resolve foreign keys.
+still resolve foreign keys — verified across three seasons, including a club that
+left and returned (Ipswich Town), which still resolves to a single `dim_teams`
+row. Each completed season derives its own independent `fact_standings`
+progression.
 
 ## Single-writer discipline
 
