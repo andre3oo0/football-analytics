@@ -1,3 +1,4 @@
+[![football-data-pipeline](https://github.com/andre3oo0/football-analytics/actions/workflows/pipeline.yml/badge.svg)](https://github.com/andre3oo0/football-analytics/actions/workflows/pipeline.yml)
 # Football data pipeline
 
 An end-to-end analytics engineering project. It pulls football data from a
