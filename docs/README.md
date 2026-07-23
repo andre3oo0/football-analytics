@@ -1,9 +1,9 @@
 # Documentation
 
 Detailed reference documentation for the football data pipeline. If you just
-want the short overview, read the top-level [README](../README.md); if you want
-a single-file rundown, read [HANDOVER.md](../HANDOVER.md). These pages go deeper
-and are split by topic.
+want the short overview, read the top-level [README](../README.md); if you're
+getting started or contributing, read [CONTRIBUTING.md](../CONTRIBUTING.md).
+These pages go deeper and are split by topic.
 
 The Power BI report itself is out of scope for now. The Parquet serving layer
 that would feed it is documented in [exports.md](exports.md).
