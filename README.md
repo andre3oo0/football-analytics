@@ -9,6 +9,13 @@ The interesting part here is the transformation, testing, documentation and
 orchestration, not a dashboard at the end. The dimensional model, the dbt tests,
 and the question "does this fail loudly when the data is wrong?" are the point.
 
+## Documentation
+
+Detailed reference docs live in [docs/](docs/README.md): architecture, running
+the project, ingestion internals, the data model and dictionary, testing,
+orchestration, and the design decisions. [HANDOVER.md](HANDOVER.md) is a
+single-file rundown of the whole thing.
+
 ## Stack
 
 - Python 3.11+ for ingestion only
