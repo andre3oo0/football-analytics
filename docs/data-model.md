@@ -5,6 +5,10 @@ column-level detail and types see [data-dictionary.md](data-dictionary.md).
 
 ## Entity relationships
 
+![Star schema ER diagram](erd.svg)
+
+The same thing as a mermaid diagram (renders inline on GitHub):
+
 ```mermaid
 erDiagram
   dim_competitions ||--o{ fact_matches   : competition_code

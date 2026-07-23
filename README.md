@@ -13,8 +13,8 @@ and the question "does this fail loudly when the data is wrong?" are the point.
 
 Detailed reference docs live in [docs/](docs/README.md): architecture, running
 the project, ingestion internals, the data model and dictionary, testing,
-orchestration, and the design decisions. [HANDOVER.md](HANDOVER.md) is a
-single-file rundown of the whole thing.
+orchestration, and the design decisions. New here?
+[CONTRIBUTING.md](CONTRIBUTING.md) is a short onboarding guide.
 
 ## Stack
 

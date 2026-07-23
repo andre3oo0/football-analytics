@@ -1,6 +1,9 @@
 # Secrets. The API key lives only in .env locally and in a GitHub secret in CI.
 .env
 
+# Personal notes, kept local and never pushed.
+HANDOVER.md
+
 # Local DuckDB warehouse. It's a build artifact, always rebuildable from raw.
 *.duckdb
 *.duckdb.wal
