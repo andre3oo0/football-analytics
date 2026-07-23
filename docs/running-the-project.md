@@ -91,6 +91,7 @@ The DuckDB file is disposable. To rebuild it from cached JSON (no API calls):
 rm -f data/football.duckdb data/football.duckdb.wal
 python -m ingestion.run                                                   # live season from cache
 python -m ingestion.run --season 2024 --competitions PL PD BL1 SA FL1 --endpoints teams matches
+python -m ingestion.run --season 2025 --competitions PL PD BL1 SA FL1 --endpoints teams matches
 cd dbt && dbt build --full-refresh --profiles-dir .
 ```
 
@@ -116,14 +117,15 @@ After a full build against the current data:
 | Table             | Rows  |
 |-------------------|-------|
 | dim_competitions  | 6     |
-| dim_teams         | 164   |
-| dim_seasons       | 11    |
-| fact_matches      | 3,608 |
-| fact_standings    | 3,504 |
+| dim_teams         | 169   |
+| dim_seasons       | 16    |
+| fact_matches      | 5,360 |
+| fact_standings    | 7,008 |
 
 `dbt build` should report `PASS=73, ERROR=0`. `fact_standings` is populated from
-the 2024/25 backfill; it stays empty for the live 2026/27 season until matches
-are actually played (see [design-decisions.md](design-decisions.md)).
+the 2024/25 and 2025/26 backfills (3,504 rows each); it stays empty for the live
+2026/27 season until matches are actually played (see
+[design-decisions.md](design-decisions.md)).
 
 ## Troubleshooting
 
@@ -131,7 +133,7 @@ are actually played (see [design-decisions.md](design-decisions.md)).
 |---------|---------------|
 | `CERTIFICATE_VERIFY_FAILED` | SSL-inspecting proxy. Make sure `truststore` is installed; the client injects it automatically. |
 | A run hangs or a lock error | Something else holds the DuckDB file open for writing (another run, DBeaver). Close it; keep steps sequential. |
-| `fact_standings` is empty | Expected if only the live off-season data is loaded. Backfill 2024/25. |
+| `fact_standings` is empty | Expected if only the live off-season data is loaded. Backfill a completed season (2024/25 or 2025/26). |
 | dbt: `Database "football" does not exist` | The DuckDB file stem must be `football` (the source `database:` is set to that). Keep the filename or update `_staging__sources.yml`. |
 | dbt can't find the profile | Run from `dbt/` with `--profiles-dir .`. |
 | A historical season 403s | The free tier does not expose that season. |
