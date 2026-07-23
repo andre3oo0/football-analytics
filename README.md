@@ -83,10 +83,10 @@ Competitions:
 
 Endpoints per competition: `/teams`, `/matches`, `/standings`.
 
-Seasons: the five leagues are pulled for the live 2026/27 season, plus one
-completed season (2024/25, via `--season 2024`). The completed season is what
-gives `fact_standings` real finished results to work from. Ingestion is
-season-aware and caches each season separately.
+Seasons: the five leagues are pulled for the live 2026/27 season, plus two
+completed seasons (2024/25 via `--season 2024` and 2025/26 via `--season 2025`).
+The completed seasons are what give `fact_standings` real finished results to
+work from. Ingestion is season-aware and caches each season separately.
 
 ### About the off-season
 
@@ -112,8 +112,8 @@ produces real standings from that point on with no code change.
   finished match results (not the standings endpoint), built incrementally,
   leagues only.
 
-Current row counts: `dim_competitions` 6, `dim_teams` 164, `dim_seasons` 11,
-`fact_matches` 3,608, `fact_standings` 3,504.
+Current row counts: `dim_competitions` 6, `dim_teams` 169, `dim_seasons` 16,
+`fact_matches` 5,360, `fact_standings` 7,008.
 
 ## Design decisions
 
@@ -203,8 +203,9 @@ cp .env.example .env               # then paste your football-data.org key
 # 4. Ingest
 python -m ingestion.run                         # cache-first, no API calls if cached
 # python -m ingestion.run --refresh             # re-fetch the live season
-# one completed season for the derived standings:
+# completed seasons for the derived standings:
 # python -m ingestion.run --refresh --season 2024 --competitions PL PD BL1 SA FL1 --endpoints teams matches
+# python -m ingestion.run --refresh --season 2025 --competitions PL PD BL1 SA FL1 --endpoints teams matches
 
 # 5. Transform, test, docs (run from dbt/)
 cd dbt
