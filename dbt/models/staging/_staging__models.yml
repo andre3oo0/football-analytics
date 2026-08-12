@@ -50,10 +50,16 @@ models:
         description: "Match lifecycle status."
         data_tests:
           - not_null
-          # Observed set only. AWARDED = an officially decided result (forfeit).
+          # The 2026/27 season going live means fixtures now move through the
+          # match lifecycle: SCHEDULED -> TIMED -> IN_PLAY / PAUSED -> FINISHED
+          # (plus SUSPENDED / POSTPONED / CANCELLED / AWARDED). These are all
+          # expected, so the list covers the whole documented lifecycle rather
+          # than tripping every week as the next value shows up. A value outside
+          # this set still fails loudly. AWARDED is an officially decided result.
           - accepted_values:
               arguments:
-                values: ['SCHEDULED', 'FINISHED', 'AWARDED']
+                values: ['SCHEDULED', 'TIMED', 'IN_PLAY', 'PAUSED', 'FINISHED',
+                         'SUSPENDED', 'POSTPONED', 'CANCELLED', 'AWARDED']
       - name: stage
         description: >
           Competition stage. REGULAR_SEASON for leagues; knockout/group values
