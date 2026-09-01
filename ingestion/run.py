@@ -18,7 +18,7 @@ import os
 
 from dotenv import load_dotenv
 
-from .api_client import FootballDataClient
+from .api_client import FootballDataClient, ResourceNotFound
 from .config import (
     API_KEY_ENV_VAR,
     COMPETITIONS,
@@ -104,6 +104,11 @@ def main(argv: list[str] | None = None) -> int:
                     method = getattr(loader, _LOADERS[endpoint])
                     n = method(response, comp.code, source_file)
                     print(f"  {comp.code:<4} {endpoint:<10} upserted {n:>4} rows")
+                except ResourceNotFound:
+                    # 404: the API has no such resource (e.g. no standings table
+                    # for a knockout tournament). Expected, so skip it without
+                    # failing the run.
+                    print(f"  {comp.code:<4} {endpoint:<10} not available (404), skipping")
                 except Exception as exc:  # noqa: BLE001 - report & continue
                     failures.append(f"{comp.code}/{endpoint}: {exc}")
                     print(f"  {comp.code:<4} {endpoint:<10} FAILED  ({exc})")
