@@ -47,6 +47,12 @@ class RateLimitError(RuntimeError):
     """Raised when we exhaust retries against HTTP 429."""
 
 
+class ResourceNotFound(RuntimeError):
+    """Raised on HTTP 404. The resource genuinely doesn't exist, which is a
+    legitimate, expected state for some endpoints (e.g. a knockout tournament
+    has no standings table). Callers can treat this as a skip, not a failure."""
+
+
 class FootballDataClient:
     def __init__(
         self,
@@ -149,6 +155,11 @@ class FootballDataClient:
                 )
                 time.sleep(wait)
                 continue
+
+            if resp.status_code == 404:
+                # The resource doesn't exist. Legitimate for some endpoints, so
+                # signal it distinctly and let the caller decide to skip.
+                raise ResourceNotFound(f"404 Not Found: {url}")
 
             # Any other 4xx (bad key, unknown competition, ...) is not retryable.
             resp.raise_for_status()

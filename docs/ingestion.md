@@ -132,6 +132,12 @@ Each competition/endpoint is wrapped so a single failure is reported and skipped
 rather than aborting the whole run, but the process exits non-zero if anything
 failed. That way it does as much as it can and still fails loudly for CI.
 
+One exception: an HTTP 404 is treated as "resource not available" and skipped
+without failing the run. Some endpoints legitimately have no data (for example
+the World Cup has no standings table once it is past the group stage), and
+nothing downstream depends on those. Real errors (bad key, 5xx, network) still
+fail loudly.
+
 ## Seasons currently loaded
 
 - Live 2026/27 for all five leagues and the World Cup (default pull).
