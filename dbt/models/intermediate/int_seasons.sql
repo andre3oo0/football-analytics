@@ -25,8 +25,8 @@ deduped as (
 
 select
     *,
-    -- Readable label. A one-calendar-year competition (like the World Cup) is
-    -- just its year; a cross-year league season is "YYYY/YY".
+    -- Readable label. A season inside a single calendar year is just that year;
+    -- a cross-year league season is "YYYY/YY".
     case
         when extract(year from season_start_date) = extract(year from season_end_date)
             then cast(extract(year from season_start_date) as varchar)

@@ -18,8 +18,8 @@ leaves all interpretation to dbt.
 
 Holds constants only, no logic:
 
-- `COMPETITIONS`: the six competitions (PL, PD, BL1, SA, FL1 as LEAGUE; WC as
-  TOURNAMENT), each a small dataclass of `code`, `name`, `competition_type`.
+- `COMPETITIONS`: the five leagues (PL, PD, BL1, SA, FL1), each a small
+  dataclass of `code`, `name`, `competition_type`.
 - `ENDPOINTS`: `["teams", "matches", "standings"]`.
 - `BASE_URL`, `API_KEY_ENV_VAR`.
 - Rate-limit budget: `MIN_SECONDS_BETWEEN_REQUESTS = 7.5` (about 8/min against
@@ -94,11 +94,11 @@ the existing row, so:
 ### Standings are exploded, all types kept
 
 A standings response is one snapshot at `season.currentMatchday` and can contain
-several tables: `TOTAL` and, mid-season, `HOME`/`AWAY`, plus one table per group
-for a tournament. The loader lands every type the source returns (hence
-`standing_type` in the key) so raw stays a faithful copy. `currentMatchday` can
-be null before a tournament starts; the PK column is `NOT NULL`, so it is
-coalesced to 0.
+several tables: `TOTAL` and, mid-season, `HOME`/`AWAY` (and one table per group
+where a competition has groups). The loader lands every type the source returns
+(hence `standing_type` in the key) so raw stays a faithful copy. `currentMatchday`
+can be null (e.g. before a competition starts); the PK column is `NOT NULL`, so
+it is coalesced to 0.
 
 ## run.py — CLI reference
 
@@ -133,14 +133,14 @@ rather than aborting the whole run, but the process exits non-zero if anything
 failed. That way it does as much as it can and still fails loudly for CI.
 
 One exception: an HTTP 404 is treated as "resource not available" and skipped
-without failing the run. Some endpoints legitimately have no data (for example
-the World Cup has no standings table once it is past the group stage), and
-nothing downstream depends on those. Real errors (bad key, 5xx, network) still
+without failing the run. An endpoint can legitimately have no data (for example
+a competition with no standings table for a given season), and nothing
+downstream depends on a missing one. Real errors (bad key, 5xx, network) still
 fail loudly.
 
 ## Seasons currently loaded
 
-- Live 2026/27 for all five leagues and the World Cup (default pull).
+- Live 2026/27 for all five leagues (default pull).
 - Completed 2024/25 for the five leagues (backfilled, teams + matches only).
 - Completed 2025/26 for the five leagues (backfilled, teams + matches only).
 

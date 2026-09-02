@@ -1,12 +1,11 @@
--- One row per match across every competition (leagues and the World Cup in the
--- same table). The stage column tells REGULAR_SEASON apart from the World Cup
--- rounds. Scores and measures are null until a match is played. Grain is
--- match_id, a degenerate key.
+-- One row per match across every competition, grain match_id (a degenerate
+-- key). Scores and measures are null until a match is played.
 --
--- I keep both in one fact because the grain is the same (a match is a match)
--- and most questions span competitions ("goals per matchday", "results by
--- stage"). Splitting by competition would just force UNIONs to answer anything
--- cross-competition; stage plus the competition FK carry the distinction.
+-- Every competition shares this one table because the grain is identical (a
+-- match is a match) and most questions span competitions ("goals per matchday",
+-- "results by competition"). The competition FK carries the distinction, so
+-- there is no need for per-competition fact tables and UNIONs to query across
+-- them.
 
 select
     match_id,                  -- grain / degenerate key

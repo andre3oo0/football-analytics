@@ -49,8 +49,9 @@ class RateLimitError(RuntimeError):
 
 class ResourceNotFound(RuntimeError):
     """Raised on HTTP 404. The resource genuinely doesn't exist, which is a
-    legitimate, expected state for some endpoints (e.g. a knockout tournament
-    has no standings table). Callers can treat this as a skip, not a failure."""
+    legitimate, expected state for some endpoints (e.g. a competition may have no
+    standings table for a given season). Callers can treat this as a skip, not a
+    failure."""
 
 
 class FootballDataClient:

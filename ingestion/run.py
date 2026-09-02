@@ -105,9 +105,9 @@ def main(argv: list[str] | None = None) -> int:
                     n = method(response, comp.code, source_file)
                     print(f"  {comp.code:<4} {endpoint:<10} upserted {n:>4} rows")
                 except ResourceNotFound:
-                    # 404: the API has no such resource (e.g. no standings table
-                    # for a knockout tournament). Expected, so skip it without
-                    # failing the run.
+                    # 404: the API has no such resource (e.g. a competition with
+                    # no standings table for a season). Expected, so skip it
+                    # without failing the run.
                     print(f"  {comp.code:<4} {endpoint:<10} not available (404), skipping")
                 except Exception as exc:  # noqa: BLE001 - report & continue
                     failures.append(f"{comp.code}/{endpoint}: {exc}")

@@ -49,14 +49,14 @@ models:
                 to: ref('dim_competitions')
                 field: competition_code
       - name: season_label
-        description: "e.g. '2024/25' (league) or '2026' (World Cup)."
+        description: "e.g. '2024/25'."
 
   # facts
   - name: fact_matches
     description: >
-      One row per match across all competitions and seasons. stage tells league
-      games (REGULAR_SEASON) apart from World Cup rounds. Scores and measures are
-      null until a match has a result; has_result flags FINISHED/AWARDED matches.
+      One row per match across all competitions and seasons. Scores and measures
+      are null until a match has a result; has_result flags FINISHED/AWARDED
+      matches.
     columns:
       - name: match_id
         description: "Grain / degenerate key."
@@ -102,9 +102,8 @@ models:
     description: >
       League standings derived from match results (not the standings endpoint).
       One row per team per matchday snapshot, cumulative up to and including that
-      matchday. Leagues only; the World Cup is left out on purpose. Incremental
-      (delete+insert on standing_key): a season is re-derived and replaced when
-      new results land.
+      matchday. Incremental (delete+insert on standing_key): a season is
+      re-derived and replaced when new results land.
     columns:
       - name: standing_key
         description: "Surrogate grain key: competition|season|team|matchday."

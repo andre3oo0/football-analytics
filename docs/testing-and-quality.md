@@ -37,19 +37,20 @@ real dimension row:
 
 On the enum-like columns:
 
-- `stg_matches.status`: `SCHEDULED`, `FINISHED`, `AWARDED`
-- `stg_matches.stage`: `REGULAR_SEASON`, `GROUP_STAGE`, `LAST_32`, `LAST_16`, `QUARTER_FINALS`, `SEMI_FINALS`, `THIRD_PLACE`, `FINAL`
+- `stg_matches.status`: the match lifecycle enum (`SCHEDULED`, `TIMED`, `IN_PLAY`, `PAUSED`, `FINISHED`, `SUSPENDED`, `POSTPONED`, `CANCELLED`, `AWARDED`) at **warn** severity
+- `stg_matches.stage`: `REGULAR_SEASON`
 - `stg_matches.winner`: `HOME_TEAM`, `AWAY_TEAM`, `DRAW`
 - `stg_matches.duration`: `REGULAR`, `EXTRA_TIME`, `PENALTY_SHOOTOUT`
 - `stg_standings.standing_type`: `TOTAL`, `HOME`, `AWAY`
 - `dim_competitions.competition_type` and the seed: `LEAGUE`, `TOURNAMENT`
 
-The `status` and `stage` lists contain only the values actually observed in the
-data, not the full documented API set. This is deliberate: a test that accepts
-everything catches nothing. When a genuinely new value appears (for example live
-in-play statuses like `TIMED` or `IN_PLAY` once the 2026/27 season starts) the
-test fails, which is the signal to look, confirm it's real, and widen the list as
-a one-line change with a git trail.
+`stage` lists only the value it ever takes (`REGULAR_SEASON`) and fails the build
+on anything else — the right fail-loud behaviour for a stable field. `status` is
+different: it is a live, source-controlled field, and on the free tier the API
+sometimes returns junk in it (even a kickoff timestamp for future fixtures), so
+its check runs at `severity: warn` — unexpected values surface in the run output
+without failing the build. That is safe because nothing downstream trusts a raw
+status beyond `has_result` (FINISHED/AWARDED).
 
 Generic-test arguments are nested under `arguments:`, which is the form dbt 1.10+
 expects, so the build has no deprecation warnings.
@@ -62,7 +63,6 @@ fails if any come back.
 | Test | Checks |
 |------|--------|
 | `assert_scores_never_negative` | No negative full-time or half-time scores in `fact_matches`. |
-| `assert_wc_knockout_has_winner` | A finished World Cup knockout match is never a draw or a null winner. Catches stage/score inconsistencies. |
 | `assert_standings_played_equals_wdl` | In `fact_standings`, `played = won + drawn + lost`. |
 | `assert_standings_points_consistent` | In `fact_standings`, `points = won*3 + drawn`. |
 | `assert_standings_played_monotonic` | A team's cumulative `played` never decreases as matchday increases. |

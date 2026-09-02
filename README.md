@@ -79,7 +79,6 @@ Competitions:
 | BL1  | Bundesliga          | LEAGUE     |
 | SA   | Serie A             | LEAGUE     |
 | FL1  | Ligue 1             | LEAGUE     |
-| WC   | FIFA World Cup 2026 | TOURNAMENT |
 
 Endpoints per competition: `/teams`, `/matches`, `/standings`.
 
@@ -101,19 +100,19 @@ produces real standings from that point on with no code change.
 
 ## Dimensional model
 
-- `dim_competitions`: one row per competition, with a `competition_type` of
-  LEAGUE or TOURNAMENT.
+- `dim_competitions`: one row per competition, with a `competition_type`
+  classification (all leagues at the moment).
 - `dim_teams`: one row per team, unioned across the seasons ingested.
 - `dim_seasons`: one row per competition-season.
-- `fact_matches`: one row per match across every competition, leagues and the
-  World Cup in the same table. A `stage` column separates REGULAR_SEASON from
-  the World Cup rounds. Scores are nullable.
+- `fact_matches`: one row per match across every competition and season. Scores
+  are nullable until a match is played.
 - `fact_standings`: one row per team per matchday, derived by cumulating
   finished match results (not the standings endpoint), built incrementally,
   leagues only.
 
-Current row counts: `dim_competitions` 6, `dim_teams` 169, `dim_seasons` 16,
-`fact_matches` 5,360, `fact_standings` 7,008.
+Current row counts: `dim_competitions` 5, `dim_teams` 121, `dim_seasons` 15,
+`fact_matches` 5,256, `fact_standings` ~7,200 (7,008 from the two completed
+seasons plus the live 2026/27 season as its matchdays are played).
 
 ## Design decisions
 
@@ -131,10 +130,10 @@ That keeps ingestion generic and hard to break when the API adds a field, and it
 pushes all the field-level work into dbt where it belongs. Staging then unpacks
 the JSON, one thin view per source, no joins or logic.
 
-**One `fact_matches` for both leagues and the World Cup.** The grain is the same
-(a match is a match) and most questions cross competitions. Splitting into
-separate fact tables would just force UNIONs. The `stage` column and the
-competition FK carry the distinction instead.
+**One `fact_matches` for every competition.** The grain is the same (a match is
+a match) and most questions cross competitions. Splitting into per-competition
+fact tables would just force UNIONs. The competition FK carries the distinction
+instead.
 
 **`fact_standings` is derived from match results, not the standings endpoint.**
 The endpoint only returns one current table, and in the off-season it returns
@@ -176,16 +175,15 @@ overlap.
 
 - `unique` and `not_null` on every primary key.
 - A `relationships` test on every foreign key (each fact FK back to its dim).
-- `accepted_values` on the enum-like columns. `status` and `stage` list only the
-  values actually seen in the data, so they fail if something unexpected shows
-  up rather than quietly accepting it.
-- Five singular tests: scores are never negative; a finished World Cup knockout
-  is never a draw with a null winner; `played = won + drawn + lost`;
+- `accepted_values` on the enum-like columns. `stage` lists only the value it
+  ever takes (`REGULAR_SEASON`) and fails on anything else; `status` is a
+  volatile, sometimes-dirty source field, so it warns rather than fails.
+- Four singular tests: scores are never negative; `played = won + drawn + lost`;
   `points = won*3 + drawn`; and cumulative games played never decreases as the
   matchday increases.
 
-`dbt build` runs models and tests together and comes back with `PASS=73,
-ERROR=0`.
+`dbt build` runs models and tests together and comes back with `ERROR=0` (the
+`status` check reports a warning, by design).
 
 ## Local setup and run
 

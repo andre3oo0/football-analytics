@@ -27,8 +27,8 @@ sources:
             description: "Full team object as returned by /competitions/{id}/teams."
       - name: matches
         description: >
-          One row per match across ALL competitions (leagues + World Cup),
-          keyed by match_id. Scores are null until a match is played.
+          One row per match across all league competitions, keyed by match_id.
+          Scores are null until a match is played.
         columns:
           - name: match_id
             description: "football-data.org global match id (natural key)."

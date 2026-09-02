@@ -51,7 +51,7 @@ jobs:
       # and closes the DuckDB file before the next starts, so there's never more
       # than one writer.
 
-      - name: Ingest live season (current 2026/27 leagues + World Cup)
+      - name: Ingest live season (current 2026/27 leagues)
         # Current season only (no --season). I don't re-pull the completed
         # 2024/25 backfill on a schedule; it never changes, so fetching it every
         # night would just waste API budget.
