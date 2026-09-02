@@ -98,13 +98,21 @@ to have match rows.
 warehouse. That risk does not exist for a single local file, so the cleaner names
 win for a readable lineage graph.
 
-## accepted_values restricted to observed values
+## accepted_values on the enum columns
 
-**Decision.** `status` and `stage` list only the values seen in the data.
+**Decision.** Keep an `accepted_values` list on the enum-like columns. `stage`
+fails the build on an unlisted value; `status` only warns.
 
-**Why.** A test that accepts everything the docs allow never catches a change. By
-listing observed values, the test fails when reality shifts, which is the moment
-to look. Widening the list is then a conscious, reviewable change.
+**Why.** The original idea was to fail loudly so a shift in the data gets noticed
+rather than silently accepted. That holds for `stage`, which is stable and clean.
+It does not hold for `status`: it is a live, source-controlled field, and on the
+free tier the API is not clean about it — besides the real lifecycle values it
+sometimes returns a kickoff timestamp in the `status` field for future fixtures.
+Failing the build on that would make CI red for a source quirk we can't control
+and that doesn't affect the model (nothing downstream trusts a raw status beyond
+`has_result`, i.e. FINISHED/AWARDED). So `status` runs at `severity: warn`: the
+unexpected values still show up in the run output, but they don't block the
+pipeline. `stage` stays a hard failure.
 
 ## Backfill one completed season
 

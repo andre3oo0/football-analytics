@@ -137,4 +137,4 @@ the 2024/25 and 2025/26 backfills (3,504 rows each); it stays empty for the live
 | dbt: `Database "football" does not exist` | The DuckDB file stem must be `football` (the source `database:` is set to that). Keep the filename or update `_staging__sources.yml`. |
 | dbt can't find the profile | Run from `dbt/` with `--profiles-dir .`. |
 | A historical season 403s | The free tier does not expose that season. |
-| `accepted_values` test fails on `status`/`stage` | The data produced a new value (for example live in-play statuses once the season starts). Confirm it's legitimate, then widen the list in `_staging__models.yml`. This is the intended fail-loud behaviour. |
+| `accepted_values` warns on `status` | Expected. The live source returns dirty/volatile status values (sometimes even a timestamp in the field), so the `status` check is warn-level and never fails the build. If the `stage` check ever fails, confirm the new value is legitimate and add it in `_staging__models.yml`. |
