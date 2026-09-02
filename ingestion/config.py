@@ -33,15 +33,13 @@ class Competition:
     competition_type: str  # "LEAGUE" or "TOURNAMENT"
 
 
-# The five leagues are what drive the incremental and scheduling story. The
-# World Cup is the headline competition but its data is mostly static.
+# The five leagues the pipeline covers.
 COMPETITIONS: list[Competition] = [
     Competition("PL", "Premier League", "LEAGUE"),
     Competition("PD", "La Liga", "LEAGUE"),
     Competition("BL1", "Bundesliga", "LEAGUE"),
     Competition("SA", "Serie A", "LEAGUE"),
     Competition("FL1", "Ligue 1", "LEAGUE"),
-    Competition("WC", "FIFA World Cup 2026", "TOURNAMENT"),
 ]
 
 # Endpoint suffixes under /competitions/{code}/...

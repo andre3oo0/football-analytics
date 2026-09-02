@@ -114,17 +114,17 @@ cd dbt && dbt build --profiles-dir .
 
 After a full build against the current data:
 
-| Table             | Rows  |
-|-------------------|-------|
-| dim_competitions  | 6     |
-| dim_teams         | 169   |
-| dim_seasons       | 16    |
-| fact_matches      | 5,360 |
-| fact_standings    | 7,008 |
+| Table             | Rows   |
+|-------------------|--------|
+| dim_competitions  | 5      |
+| dim_teams         | 121    |
+| dim_seasons       | 15     |
+| fact_matches      | 5,256  |
+| fact_standings    | ~7,200 |
 
-`dbt build` should report `PASS=73, ERROR=0`. `fact_standings` is populated from
-the 2024/25 and 2025/26 backfills (3,504 rows each); it stays empty for the live
-2026/27 season until matches are actually played (see
+`dbt build` should report `ERROR=0` (the `status` check warns, by design).
+`fact_standings` covers the completed 2024/25 and 2025/26 seasons (3,504 rows
+each) plus the live 2026/27 season as its matchdays are played (see
 [design-decisions.md](design-decisions.md)).
 
 ## Troubleshooting

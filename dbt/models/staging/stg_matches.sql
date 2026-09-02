@@ -1,10 +1,8 @@
 -- Staging for raw.matches: one typed row per match. Thin by design (unpack the
 -- JSON payload, rename, cast), no joins or business logic.
 --
--- I pull stage out cleanly here because it matters for the single match fact:
--- REGULAR_SEASON for the leagues, and the group/knockout values for the World
--- Cup. Scores stay null for matches that haven't been played; I cast them, I
--- don't coalesce them to zero.
+-- Scores stay null for matches that haven't been played; I cast them, I don't
+-- coalesce them to zero. `stage` is REGULAR_SEASON for every league match.
 
 with source as (
     select * from {{ source('raw', 'matches') }}

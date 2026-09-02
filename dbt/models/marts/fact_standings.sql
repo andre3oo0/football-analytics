@@ -9,9 +9,10 @@
 -- progression. The raw standings data still lands in raw.standings, but nothing
 -- here depends on it.
 --
--- Scope is the leagues only (REGULAR_SEASON). The World Cup is left out on
--- purpose: its group + knockout format doesn't produce a league table this way.
--- That's the competition_type = 'LEAGUE' and stage = 'REGULAR_SEASON' filter.
+-- Scope is league regular-season matches (competition_type = 'LEAGUE',
+-- stage = 'REGULAR_SEASON'). Every competition is a league today, so these
+-- filters are defensive: they keep the model correct if a non-league
+-- competition (which wouldn't produce a league table this way) is ever added.
 --
 -- Only matches with a definitive result count (has_result = FINISHED or
 -- AWARDED); scheduled matches don't. For a team at matchday N the measures are
@@ -42,7 +43,7 @@ with league_results as (
         f._loaded_at
     from {{ ref('fact_matches') }} f
     join {{ ref('dim_competitions') }} c using (competition_code)
-    where c.competition_type = 'LEAGUE'     -- leaves out the World Cup
+    where c.competition_type = 'LEAGUE'     -- leagues only
       and f.stage = 'REGULAR_SEASON'
       and f.has_result                       -- FINISHED or AWARDED only
 ),

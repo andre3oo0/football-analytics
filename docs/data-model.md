@@ -58,9 +58,9 @@ tools.
 ### dim_competitions
 
 One row per competition. Built from the seed `seed_competitions.csv`, because
-`competition_type` (LEAGUE vs TOURNAMENT) is our own analytical classification
-rather than an API field, and the competition list is small static reference
-data. Primary key `competition_code`. Six rows.
+`competition_type` is our own analytical classification rather than an API
+field, and the competition list is small static reference data. Primary key
+`competition_code`. Five rows (all leagues).
 
 ### dim_teams
 
@@ -70,41 +70,38 @@ union of every team seen across the seasons loaded (a club relegated after
 2024/25 still appears, so its historical matches resolve their foreign keys). A
 club that leaves and later returns — e.g. Ipswich Town, in 2024/25 and again in
 2026/27 but not 2025/26 — resolves to exactly one row, because `team_id` is
-stable across seasons. Primary key `team_id`. 169 rows.
+stable across seasons. Primary key `team_id`. 121 rows.
 
 ### dim_seasons
 
 One row per competition-season, from `int_seasons`. `season_id` is unique per
 competition, so it is the primary key. Includes `season_label` (for example
-"2024/25" for a league, "2026" for the World Cup), start and end dates, and the
-current matchday. 16 rows (three per league — 2024/25, 2025/26, 2026/27 — plus
-the World Cup).
+"2024/25"), start and end dates, and the current matchday. 15 rows (three per
+league: 2024/25, 2025/26, 2026/27).
 
 ## Facts
 
 ### fact_matches
 
-One row per match across every competition and season, leagues and the World Cup
-in the same table. Grain is `match_id` (a degenerate key). Foreign keys:
-`competition_code`, `season_id`, `home_team_id`, `away_team_id`.
+One row per match across every competition and season. Grain is `match_id` (a
+degenerate key). Foreign keys: `competition_code`, `season_id`, `home_team_id`,
+`away_team_id`.
 
 Degenerate dimensions carried on the fact: `stage`, `group_name`, `status`,
 `matchday`, `kickoff_utc`, `winner`, `duration`. Measures: `home_score_ft`,
 `away_score_ft`, `home_score_ht`, `away_score_ht`, `total_goals_ft`,
 `home_points`, `away_points`, and the `has_result` flag. Scores and measures are
-null until a match has a result and are never coalesced to zero. 5,360 rows.
+null until a match has a result and are never coalesced to zero. 5,256 rows.
 
-`stage` is what separates league matches (`REGULAR_SEASON`) from the World Cup
-rounds (`GROUP_STAGE`, `LAST_32`, `LAST_16`, `QUARTER_FINALS`, `SEMI_FINALS`,
-`THIRD_PLACE`, `FINAL`). One fact table for both is a deliberate choice; see
-[design-decisions.md](design-decisions.md).
+`stage` is `REGULAR_SEASON` for every league match. Keeping all competitions in
+one fact table is a deliberate choice; see [design-decisions.md](design-decisions.md).
 
 ### fact_standings
 
 One row per team per matchday snapshot, cumulative up to and including that
-matchday. Leagues only; the World Cup is excluded by design. 7,008 rows (from the
-completed 2024/25 and 2025/26 seasons, a separate progression per season; 3,504
-each). The live 2026/27 season contributes no rows until it produces results.
+matchday. ~7,200 rows: 7,008 from the completed 2024/25 and 2025/26 seasons (a
+separate progression per season, 3,504 each) plus the live 2026/27 season as its
+matchdays are played.
 
 Primary key `standing_key` = `competition|season|team|matchday`. Foreign keys:
 `competition_code`, `season_id`, `team_id`. Measures: `played`, `won`, `drawn`,
@@ -117,8 +114,8 @@ It is computed from match results, not read from the standings endpoint. The
 reason is in [design-decisions.md](design-decisions.md); here is the mechanism.
 
 1. Start from `fact_matches`, filtered to `competition_type = 'LEAGUE'`,
-   `stage = 'REGULAR_SEASON'`, and `has_result`. That excludes the World Cup and
-   any unplayed match.
+   `stage = 'REGULAR_SEASON'`, and `has_result`. That drops any unplayed match
+   (and, defensively, anything that isn't a league regular-season match).
 2. Split each match into a home perspective and an away perspective, giving one
    row per team per counting match with that team's goals for/against and points.
 3. Build a scaffold of every team crossed with every matchday in its season. A

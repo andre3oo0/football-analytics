@@ -25,7 +25,7 @@ models:
         data_tests:
           - not_null
       - name: competition_code
-        description: "A competition this team was pulled under (PL, WC, ...)."
+        description: "A competition this team was pulled under (PL, PD, ...)."
         data_tests:
           - not_null
 
@@ -66,15 +66,12 @@ models:
               config:
                 severity: warn
       - name: stage
-        description: >
-          Competition stage. REGULAR_SEASON for leagues; knockout/group values
-          for the World Cup. Central to the single fact_matches grain.
+        description: "Competition stage. REGULAR_SEASON for every league match."
         data_tests:
           - not_null
           - accepted_values:
               arguments:
-                values: ['REGULAR_SEASON', 'GROUP_STAGE', 'LAST_32', 'LAST_16',
-                         'QUARTER_FINALS', 'SEMI_FINALS', 'THIRD_PLACE', 'FINAL']
+                values: ['REGULAR_SEASON']
       - name: winner
         description: "Full-time winner: HOME_TEAM / AWAY_TEAM / DRAW; null if unplayed."
         data_tests:

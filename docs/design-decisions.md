@@ -28,16 +28,16 @@ pushes every field-level decision into dbt where it is tested and documented.
 **Alternatives.** Flattening in Python couples ingestion to the API schema and
 scatters interpretation across two languages.
 
-## One fact table for leagues and the World Cup
+## One fact table for every competition
 
-**Decision.** `fact_matches` holds every match from every competition; `stage`
-and the competition foreign key carry the distinction.
+**Decision.** `fact_matches` holds every match from every competition; the
+competition foreign key carries the distinction.
 
 **Why.** The grain is identical (a match is a match) and most questions span
 competitions. A single table answers them without UNIONs.
 
-**Alternatives.** Separate `fact_league_matches` and `fact_wc_matches`
-fragments the grain and duplicates logic.
+**Alternatives.** Per-competition fact tables fragment the grain and duplicate
+logic.
 
 ## fact_standings is derived from match results
 

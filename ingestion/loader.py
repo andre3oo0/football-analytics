@@ -147,16 +147,16 @@ class RawLoader:
 
         A standings response is a single snapshot at season.currentMatchday, and
         it can carry several tables: TOTAL and (mid-season) HOME/AWAY, plus one
-        table per group for a tournament. I land every type the source returns so
-        raw stays a faithful copy. Picking TOTAL is a decision I make later in dbt
-        (stg_standings), where it's explicit, not silently at ingest, which is why
-        standing_type is part of the key.
+        table per group where a competition has groups. I land every type the
+        source returns so raw stays a faithful copy. Picking TOTAL is a decision
+        I make later in dbt (stg_standings), where it's explicit, not silently at
+        ingest, which is why standing_type is part of the key.
         """
         now = datetime.now()
         season = response.get("season") or {}
         season_id = season.get("id")
-        # currentMatchday can be null before a tournament kicks off. The PK column
-        # is NOT NULL, so coalesce to 0 and let dbt interpret it.
+        # currentMatchday can be null (e.g. before a competition starts). The PK
+        # column is NOT NULL, so coalesce to 0 and let dbt interpret it.
         matchday = season.get("currentMatchday") or 0
 
         rows = []

@@ -38,7 +38,7 @@ Landed API payloads. Each row is a natural key plus the untouched JSON. The
 | matchday | INTEGER | snapshot matchday (coalesced to 0 if null) |
 | standing_type | VARCHAR | API table type: TOTAL, HOME, or AWAY |
 | stage | VARCHAR | stage of the standings entry |
-| group_name | VARCHAR | group, for tournament tables |
+| group_name | VARCHAR | group name where a competition has groups; null for leagues |
 | payload | JSON | the single standings table row |
 | _source_file | VARCHAR | cache filename |
 | _loaded_at | TIMESTAMP | load timestamp |
@@ -77,7 +77,7 @@ Thin typed views, 1:1 with raw. Rename, cast and unpack only.
 | season_current_matchday | INTEGER | from the season object |
 | kickoff_utc | TIMESTAMP | |
 | status | VARCHAR | SCHEDULED / FINISHED / AWARDED (observed) |
-| stage | VARCHAR | REGULAR_SEASON or a World Cup round |
+| stage | VARCHAR | REGULAR_SEASON for league matches |
 | group_name | VARCHAR | |
 | matchday | INTEGER | |
 | home_team_id | BIGINT | |
