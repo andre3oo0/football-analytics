@@ -22,6 +22,9 @@
 <path d="M 840 458.0 C 775.0 458.0, 775.0 508.0, 710 508.0" fill="none" stroke="#9aa4b2" stroke-width="1.5"/>
 <circle cx="840" cy="458.0" r="3" fill="#9aa4b2"/>
 <rect x="708" y="503.0" width="2" height="10" fill="#9aa4b2"/>
+<path d="M 590.0 116 L 590.0 250" fill="none" stroke="#9aa4b2" stroke-width="1.5"/>
+<circle cx="590.0" cy="250" r="3" fill="#9aa4b2"/>
+<rect x="585.0" y="116" width="10" height="2" fill="#9aa4b2"/>
 <rect x="470" y="20" width="240" height="96" rx="7" ry="7" fill="#ffffff" stroke="#8a94a6" stroke-width="1.5"/>
 <path d="M 470 48 L 470 27 Q 470 20 477 20 L 703 20 Q 710 20 710 27 L 710 48 Z" fill="#2f6f4f"/>
 <text x="590.0" y="39" text-anchor="middle" fill="#ffffff" font-weight="700">dim_competitions</text>
@@ -89,5 +92,5 @@
 <rect x="841" y="488" width="298" height="20" fill="#f4f6f9"/>
 <text x="850" y="502" fill="#222" font-weight="400">played / won / drawn / lost</text>
 <text x="850" y="522" fill="#222" font-weight="400">goals + points + position</text>
-<text x="40" y="660" fill="#555" font-size="12">PK = primary key    FK = foreign key    lines: one dimension row -> many fact rows    (fact_matches joins dim_teams twice: home and away)</text>
+<text x="40" y="660" fill="#555" font-size="12">PK = primary key    FK = foreign key    lines: one dimension row -&gt; many fact rows    (fact_matches joins dim_teams twice: home and away)</text>
 </svg>

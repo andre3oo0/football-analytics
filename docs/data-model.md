@@ -7,6 +7,11 @@ column-level detail and types see [data-dictionary.md](data-dictionary.md).
 
 ![Star schema ER diagram](erd.svg)
 
+Regenerate with `python docs/generate_diagrams.py` (after a `dbt parse`). The
+column lists and layout are curated, but the script checks the foreign keys it
+draws against the model's `relationships` tests and refuses to write the file if
+they disagree — so a new or removed FK can't silently leave this diagram wrong.
+
 The same thing as a mermaid diagram (renders inline on GitHub):
 
 ```mermaid
