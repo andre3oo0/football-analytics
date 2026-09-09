@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1496 306" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12">
+<rect x="0" y="0" width="1496" height="306" fill="#ffffff"/>
+<text x="30" y="30" font-size="17" font-weight="700" fill="#222">dbt lineage — football_analytics</text>
+<text x="30" y="47" font-size="11" fill="#666">generated from target/manifest.json; generic tests omitted for readability</text>
+<path d="M 404 144.0 C 441.0 144.0, 441.0 121.0, 478 121.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="478" cy="121.0" r="2.6" fill="#b6bec9"/>
+<path d="M 404 144.0 C 441.0 144.0, 441.0 167.0, 478 167.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="478" cy="167.0" r="2.6" fill="#b6bec9"/>
+<path d="M 180 98.0 C 217.0 98.0, 217.0 98.0, 254 98.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="254" cy="98.0" r="2.6" fill="#b6bec9"/>
+<path d="M 628 167.0 C 665.0 167.0, 665.0 190.0, 702 190.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="702" cy="190.0" r="2.6" fill="#b6bec9"/>
+<path d="M 404 236.0 C 441.0 236.0, 441.0 213.0, 478 213.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="478" cy="213.0" r="2.6" fill="#b6bec9"/>
+<path d="M 628 121.0 C 665.0 121.0, 665.0 144.0, 702 144.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="702" cy="144.0" r="2.6" fill="#b6bec9"/>
+<path d="M 404 98.0 C 665.0 98.0, 665.0 144.0, 926 144.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="926" cy="144.0" r="2.6" fill="#b6bec9"/>
+<path d="M 852 144.0 C 889.0 144.0, 889.0 144.0, 926 144.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="926" cy="144.0" r="2.6" fill="#b6bec9"/>
+<path d="M 180 144.0 C 217.0 144.0, 217.0 144.0, 254 144.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="254" cy="144.0" r="2.6" fill="#b6bec9"/>
+<path d="M 180 190.0 C 217.0 190.0, 217.0 190.0, 254 190.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="254" cy="190.0" r="2.6" fill="#b6bec9"/>
+<path d="M 180 236.0 C 217.0 236.0, 217.0 236.0, 254 236.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="254" cy="236.0" r="2.6" fill="#b6bec9"/>
+<path d="M 852 144.0 C 889.0 144.0, 889.0 190.0, 926 190.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="926" cy="190.0" r="2.6" fill="#b6bec9"/>
+<path d="M 1139 144.0 C 1176.0 144.0, 1176.0 121.0, 1213 121.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="1213" cy="121.0" r="2.6" fill="#b6bec9"/>
+<path d="M 1139 144.0 C 1176.0 144.0, 1176.0 167.0, 1213 167.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="1213" cy="167.0" r="2.6" fill="#b6bec9"/>
+<path d="M 1139 144.0 C 1176.0 144.0, 1176.0 213.0, 1213 213.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="1213" cy="213.0" r="2.6" fill="#b6bec9"/>
+<rect x="30" y="221.0" width="150" height="30" rx="6" ry="6" fill="#4b5563"/>
+<text x="105.0" y="240.5" text-anchor="middle" fill="#ffffff" font-weight="600">raw.teams</text>
+<rect x="30" y="129.0" width="150" height="30" rx="6" ry="6" fill="#4b5563"/>
+<text x="105.0" y="148.5" text-anchor="middle" fill="#ffffff" font-weight="600">raw.matches</text>
+<rect x="30" y="175.0" width="150" height="30" rx="6" ry="6" fill="#4b5563"/>
+<text x="105.0" y="194.5" text-anchor="middle" fill="#ffffff" font-weight="600">raw.standings</text>
+<rect x="478" y="106.0" width="150" height="30" rx="6" ry="6" fill="#2f6f4f"/>
+<text x="553.0" y="125.5" text-anchor="middle" fill="#ffffff" font-weight="600">int_matches</text>
+<rect x="478" y="152.0" width="150" height="30" rx="6" ry="6" fill="#2f6f4f"/>
+<text x="553.0" y="171.5" text-anchor="middle" fill="#ffffff" font-weight="600">int_seasons</text>
+<rect x="254" y="83.0" width="150" height="30" rx="6" ry="6" fill="#1f4e79"/>
+<text x="329.0" y="102.5" text-anchor="middle" fill="#ffffff" font-weight="600">dim_competitions</text>
+<rect x="702" y="175.0" width="150" height="30" rx="6" ry="6" fill="#1f4e79"/>
+<text x="777.0" y="194.5" text-anchor="middle" fill="#ffffff" font-weight="600">dim_seasons</text>
+<rect x="478" y="198.0" width="150" height="30" rx="6" ry="6" fill="#1f4e79"/>
+<text x="553.0" y="217.5" text-anchor="middle" fill="#ffffff" font-weight="600">dim_teams</text>
+<rect x="702" y="129.0" width="150" height="30" rx="6" ry="6" fill="#1f4e79"/>
+<text x="777.0" y="148.5" text-anchor="middle" fill="#ffffff" font-weight="600">fact_matches</text>
+<rect x="926" y="129.0" width="213" height="30" rx="6" ry="6" fill="#1f4e79"/>
+<text x="1032.5" y="148.5" text-anchor="middle" fill="#ffffff" font-weight="600">fact_standings</text>
+<rect x="254" y="129.0" width="150" height="30" rx="6" ry="6" fill="#1f6f8b"/>
+<text x="329.0" y="148.5" text-anchor="middle" fill="#ffffff" font-weight="600">stg_matches</text>
+<rect x="254" y="175.0" width="150" height="30" rx="6" ry="6" fill="#1f6f8b"/>
+<text x="329.0" y="194.5" text-anchor="middle" fill="#ffffff" font-weight="600">stg_standings</text>
+<rect x="254" y="221.0" width="150" height="30" rx="6" ry="6" fill="#1f6f8b"/>
+<text x="329.0" y="240.5" text-anchor="middle" fill="#ffffff" font-weight="600">stg_teams</text>
+<rect x="926" y="175.0" width="213" height="30" rx="6" ry="6" fill="#b45309"/>
+<text x="1032.5" y="194.5" text-anchor="middle" fill="#ffffff" font-weight="600">assert_scores_never_negative</text>
+<rect x="1213" y="106.0" width="253" height="30" rx="6" ry="6" fill="#b45309"/>
+<text x="1339.5" y="125.5" text-anchor="middle" fill="#ffffff" font-weight="600">assert_standings_played_equals_wdl</text>
+<rect x="1213" y="152.0" width="253" height="30" rx="6" ry="6" fill="#b45309"/>
+<text x="1339.5" y="171.5" text-anchor="middle" fill="#ffffff" font-weight="600">assert_standings_played_monotonic</text>
+<rect x="1213" y="198.0" width="253" height="30" rx="6" ry="6" fill="#b45309"/>
+<text x="1339.5" y="217.5" text-anchor="middle" fill="#ffffff" font-weight="600">assert_standings_points_consistent</text>
+<rect x="30" y="83.0" width="150" height="30" rx="6" ry="6" fill="#7c5c9e"/>
+<text x="105.0" y="102.5" text-anchor="middle" fill="#ffffff" font-weight="600">seed_competitions</text>
+<rect x="30" y="281" width="11" height="11" rx="2" fill="#4b5563"/>
+<text x="46" y="290" font-size="11" fill="#555">raw source</text>
+<rect x="134" y="281" width="11" height="11" rx="2" fill="#7c5c9e"/>
+<text x="150" y="290" font-size="11" fill="#555">seed</text>
+<rect x="200" y="281" width="11" height="11" rx="2" fill="#1f6f8b"/>
+<text x="216" y="290" font-size="11" fill="#555">staging (view)</text>
+<rect x="328" y="281" width="11" height="11" rx="2" fill="#2f6f4f"/>
+<text x="344" y="290" font-size="11" fill="#555">intermediate (view)</text>
+<rect x="487" y="281" width="11" height="11" rx="2" fill="#1f4e79"/>
+<text x="503" y="290" font-size="11" fill="#555">mart (table)</text>
+<rect x="603" y="281" width="11" height="11" rx="2" fill="#b45309"/>
+<text x="619" y="290" font-size="11" fill="#555">singular test</text>
+</svg>

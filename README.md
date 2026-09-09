@@ -246,10 +246,11 @@ git push -u origin main
 
 ## Lineage
 
-The rendered dbt docs graph, sources and seed through to the marts, with the
-singular tests hanging off the facts:
+Sources and seed through to the marts, with the singular tests hanging off the
+facts. Generated from dbt's `manifest.json`, so it reflects the real DAG (generic
+tests are omitted for readability):
 
-![dbt docs lineage graph](docs/lineage_dag.png)
+![dbt lineage graph](docs/lineage_dag.svg)
 
 Same thing as a diagram that renders inline on GitHub:
 
