@@ -109,7 +109,9 @@ results, so nothing consumes the standings endpoint downstream. It is kept as a
 faithful typed copy of that source and for freshness monitoring. See
 [design-decisions.md](design-decisions.md).
 
-The rendered dbt docs graph is at [docs/lineage_dag.png](lineage_dag.png).
+A rendered version of the same lineage, generated from dbt's `manifest.json`, is
+at [docs/lineage_dag.svg](lineage_dag.svg). For the interactive graph, run
+`dbt docs generate && dbt docs serve` from `dbt/`.
 
 ## Technology
 
