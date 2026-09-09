@@ -84,19 +84,21 @@ Endpoints per competition: `/teams`, `/matches`, `/standings`.
 
 Seasons: the five leagues are pulled for the live 2026/27 season, plus two
 completed seasons (2024/25 via `--season 2024` and 2025/26 via `--season 2025`).
-The completed seasons are what give `fact_standings` real finished results to
-work from. Ingestion is season-aware and caches each season separately.
+Ingestion is season-aware and caches each season separately.
 
-### About the off-season
+### The live season
 
-Worth being upfront about: right now the leagues are in the 2026/27 off-season.
-Every league fixture is scheduled with no result yet, so a table built from
-finished matches is legitimately empty for the live season. That's exactly why I
-also backfilled the completed 2024/25 season, which is where the standings
-progression and the incremental behaviour are actually demonstrated. A scheduled
-run tonight ingests the live season, builds everything and passes its tests, but
-`fact_standings` stays empty until 2026/27 actually kicks off. The same pipeline
-produces real standings from that point on with no code change.
+The 2026/27 season is under way, so the pipeline is now doing what it was built
+for: each scheduled run picks up newly finished matches and `fact_standings`
+extends by a matchday. As of the last run the leagues were 1–3 matchdays in
+(La Liga 3, Premier League / Serie A / Ligue 1 2, Bundesliga 1), contributing
+194 standings rows on top of the completed seasons.
+
+The two completed seasons were backfilled because the project was built during
+the off-season, when the live season had no results at all and a table derived
+from finished matches was legitimately empty. They still earn their place: each
+gives a full 38- (or 34-) matchday progression to test and demonstrate against,
+which a season two matchdays old can't.
 
 ## Dimensional model
 

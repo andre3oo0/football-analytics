@@ -37,9 +37,13 @@ troubleshooting are in [docs/running-the-project.md](docs/running-the-project.md
 
 ### A couple of things that will confuse you otherwise
 
-- The leagues are in the off-season, so `fact_standings` is empty for the live
-  season. Real standings come from the backfilled 2024/25 season. This is
-  expected, not a bug. See [docs/design-decisions.md](docs/design-decisions.md).
+- `fact_standings` holds three seasons: the two completed backfills (2024/25,
+  2025/26) with full matchday progressions, plus the live 2026/27 season, which
+  is only a couple of matchdays in and so has far fewer rows. That's expected.
+  See [docs/design-decisions.md](docs/design-decisions.md).
+- The `status` test warns rather than fails. The source sometimes returns junk
+  (a kickoff timestamp) in that field. A warning is normal; a `stage` failure
+  would be real.
 - DuckDB is single-writer. Don't run two things against the file at once, and
   don't leave it open in a GUI (DBeaver) while the pipeline runs, or steps will
   block.

@@ -133,7 +133,7 @@ each) plus the live 2026/27 season as its matchdays are played (see
 |---------|---------------|
 | `CERTIFICATE_VERIFY_FAILED` | SSL-inspecting proxy. Make sure `truststore` is installed; the client injects it automatically. |
 | A run hangs or a lock error | Something else holds the DuckDB file open for writing (another run, DBeaver). Close it; keep steps sequential. |
-| `fact_standings` is empty | Expected if only the live off-season data is loaded. Backfill a completed season (2024/25 or 2025/26). |
+| `fact_standings` has far fewer rows than expected | You've probably loaded only the live season, which is a couple of matchdays in. Backfill a completed season (2024/25 or 2025/26) for a full progression. |
 | dbt: `Database "football" does not exist` | The DuckDB file stem must be `football` (the source `database:` is set to that). Keep the filename or update `_staging__sources.yml`. |
 | dbt can't find the profile | Run from `dbt/` with `--profiles-dir .`. |
 | A historical season 403s | The free tier does not expose that season. |
