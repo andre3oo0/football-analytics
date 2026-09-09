@@ -49,26 +49,30 @@ The client calls `truststore.inject_into_ssl()`, which uses the runner's OS
 trust store. `ubuntu-latest` ships the standard public CAs and has no corporate
 root, so on CI this is just ordinary public-CA verification. The corporate-proxy
 case only applies on the original dev machine. If the ingest step connects and
-gets 200s, TLS in CI is fine. This was validated locally by running the exact CI
-command sequence against a fresh live-only warehouse (green build, empty
-standings, which is the correct off-season result); a real runner has not been
-exercised yet because the repo has not been pushed.
+gets 200s, TLS in CI is fine. Confirmed on a real runner: the workflow has run
+green on GitHub Actions.
 
-## What CI pulls, and what a run does today
+## What CI pulls, and what a run does
 
 CI pulls only the live current season (`--refresh`, no `--season`). It does not
 re-pull the completed 2024/25 or 2025/26 backfills, because that data cannot
 change and re-fetching it nightly would waste API budget.
 
-Because the leagues are in the 2026/27 off-season, a run today ingests fixtures
-with no results, builds everything, and passes its tests, but `fact_standings`
-comes out empty until the season starts. That is expected and stated plainly in
-the workflow comments; the same workflow produces real standings once matches
-are played, with no code change.
+The 2026/27 season is under way, so a scheduled run does real work: it picks up
+newly finished matches, and `fact_standings` extends by a matchday as results
+land. Note that CI's warehouse is built from the live season only, so its
+`fact_standings` covers 2026/27 alone — the multi-season table with the full
+backfilled progressions is a local artifact.
+
+One expected quirk in the logs: the `status` `accepted_values` test is
+warn-level and fires whenever the source returns dirty values in that field. A
+warning there is normal. A `stage` failure would not be, and is worth
+investigating.
 
 ## Setting it up on GitHub
 
-The repo has not been pushed to a remote yet. To wire it up:
+Already wired up: the repo is pushed and the workflow runs. For reference, the
+setup on a fresh remote is:
 
 ```bash
 git remote add origin https://github.com/<you>/football-analytics.git
@@ -77,3 +81,6 @@ git push -u origin main
 #   FOOTBALL_DATA_API_KEY = <your key>
 # Then Actions > football-data-pipeline > Run workflow
 ```
+
+If the repo is ever recreated, the secret goes with it and must be re-added, or
+the ingest step fails on a missing key.

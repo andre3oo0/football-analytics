@@ -3,13 +3,14 @@ name: football-data-pipeline
 # Runs the whole pipeline on a schedule and on demand:
 # ingest the live season, then dbt build (run + test), then generate docs.
 #
-# A note on what a run actually does right now: the leagues are in the 2026/27
-# off-season, so a scheduled pull fetches fixtures with no results yet and
-# fact_standings (which is derived from finished matches) comes out empty until
-# the season starts. That's expected, not a bug, and the same workflow will
-# produce real standings once matches are played. The incremental behaviour is
-# shown locally against the completed 2024/25 season (see the README), since
-# there's no live result data to show it against yet.
+# The 2026/27 season is under way, so a scheduled run does real work: it picks up
+# newly finished matches and fact_standings (derived from finished results)
+# extends by a matchday. The two completed backfills (2024/25, 2025/26) are not
+# re-pulled here; they never change.
+#
+# One expected quirk: the status accepted_values test is warn-level, because the
+# free tier sometimes returns a kickoff timestamp instead of a lifecycle value in
+# that field. A warning there is normal; a stage failure would not be.
 
 on:
   schedule:

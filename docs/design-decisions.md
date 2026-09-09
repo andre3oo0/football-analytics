@@ -119,10 +119,12 @@ pipeline. `stage` stays a hard failure.
 **Decision.** Ingest the completed 2024/25 and 2025/26 league seasons alongside
 the live 2026/27 data.
 
-**Why.** The leagues are mid-off-season with no finished matches, so a
-match-derived standings table would be empty. The backfills supply real finished
-results to build and demonstrate against, while the live season is kept for the
-scheduling story. `dim_teams` unions teams across seasons so relegated sides
+**Why.** The project was built during the off-season, when the live season had no
+finished matches at all and a match-derived standings table came out empty. The
+backfills supplied real finished results to build and demonstrate against. They
+still earn their place now that 2026/27 is under way: each completed season gives
+a full 38- (or 34-) matchday progression, which a season a couple of matchdays
+old cannot. `dim_teams` unions teams across seasons so relegated sides
 still resolve foreign keys — verified across three seasons, including a club that
 left and returned (Ipswich Town), which still resolves to a single `dim_teams`
 row. Each completed season derives its own independent `fact_standings`
