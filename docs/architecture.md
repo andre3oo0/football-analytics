@@ -110,8 +110,9 @@ faithful typed copy of that source and for freshness monitoring. See
 [design-decisions.md](design-decisions.md).
 
 A rendered version of the same lineage, generated from dbt's `manifest.json`, is
-at [docs/lineage_dag.svg](lineage_dag.svg). For the interactive graph, run
-`dbt docs generate && dbt docs serve` from `dbt/`.
+at [docs/lineage_dag.svg](lineage_dag.svg). Regenerate it (and the ER diagram)
+with `python docs/generate_diagrams.py` after a `dbt parse`. For the interactive
+graph, run `dbt docs generate && dbt docs serve` from `dbt/`.
 
 ## Technology
 

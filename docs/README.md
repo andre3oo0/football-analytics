@@ -20,6 +20,14 @@ that would feed it is documented in [exports.md](exports.md).
 8. [Design decisions](design-decisions.md) — the decisions, with rationale and alternatives.
 9. [Exports](exports.md) — the Parquet serving layer for BI tools.
 
+The diagrams in this folder (`lineage_dag.svg`, `erd.svg`) are generated, not
+screenshotted. Rebuild them with:
+
+```bash
+cd dbt && dbt parse --profiles-dir . && cd ..
+python docs/generate_diagrams.py
+```
+
 ## The one-paragraph version
 
 Python pulls football data from football-data.org, caches each response to disk,

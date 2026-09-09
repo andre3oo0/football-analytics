@@ -71,7 +71,11 @@ docs/                   detailed documentation
    `cd dbt && dbt build --profiles-dir .`. Everything must stay green.
 3. If you add or change a model, add or update its tests and its description in
    the neighbouring `_*.yml`.
-4. Open a PR describing what changed and why.
+4. If you changed the DAG or a foreign key, regenerate the diagrams:
+   `cd dbt && dbt parse --profiles-dir . && cd .. && python docs/generate_diagrams.py`.
+   It will refuse to write the ER diagram if its foreign keys no longer match the
+   model's `relationships` tests, which is the point — commit the updated SVGs.
+5. Open a PR describing what changed and why.
 
 ## Conventions
 
@@ -82,7 +86,9 @@ docs/                   detailed documentation
   every foreign key gets a `relationships` test.
 - `accepted_values` lists use the values actually observed in the data, not the
   full API set, so they fail loudly when the data changes. If a legitimate new
-  value appears, widen the list as a deliberate one-line change.
+  value appears, widen the list as a deliberate one-line change. The exception is
+  `status`, which is warn-level because the source genuinely returns junk in that
+  field; don't "fix" it by loosening `stage` the same way.
 - Comments are plain sentences. No ASCII banner/divider comment blocks.
 - Ingestion stays thin: land the raw payload keyed by its natural key and let
   dbt do the interpretation.
