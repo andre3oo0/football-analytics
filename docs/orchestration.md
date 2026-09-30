@@ -5,7 +5,7 @@ Two GitHub Actions workflows in `.github/workflows/`.
 | Workflow | Runs on | Needs the API key | Purpose |
 |----------|---------|-------------------|---------|
 | `ci.yml` | every pull request and push to `main` | no | lint, tests, a full dbt build on the fixture season |
-| `pipeline.yml` | 06:00 UTC daily and manual dispatch | yes | the real pipeline on live data |
+| `pipeline.yml` | 00:00 UTC daily (02:00 SAST) and manual dispatch | yes | the real pipeline on live data |
 
 Both run on `ubuntu-latest` with Python 3.11 and have read-only repository
 permissions.
@@ -57,6 +57,19 @@ Any failing step stops the job: an ingestion failure (exit 1), a failing dbt
 test, a contract violation. The save step is only reached when everything before
 it succeeded, so a failed run never replaces the last good warehouse in the
 cache. The next run starts from that one.
+
+### Schedule
+
+The cron entry is `0 0 * * *`: 00:00 UTC, which is 02:00 SAST all year
+(South Africa is UTC+2 with no daylight saving). GitHub often starts scheduled
+runs a few minutes late.
+
+The time is chosen so no match is in play. The latest European kickoffs are
+around 21:00 CET (20:00 UTC in winter) and finish about two hours later. A run
+during a live game would load it as IN_PLAY, and the reconciliation test could
+fail if the standings endpoint already counted it. If a run does fail, the
+cache isn't updated, so no state is lost, and the next run picks up the final
+result.
 
 ### Cache eviction
 
