@@ -31,6 +31,14 @@ jobs:
         run: ruff check .
       - name: Unit tests
         run: pytest
+      # Recompiling keeps every existing pin that still satisfies the ranges,
+      # so this only changes the lock files when requirements*.txt moved (for
+      # example a Dependabot range bump) and the locks weren't regenerated.
+      - name: Lock files match requirements
+        run: |
+          uv pip compile requirements.txt --universal --python-version 3.11 -o requirements.lock -q
+          uv pip compile requirements-dev.txt --universal --python-version 3.11 -o requirements-dev.lock -q
+          git diff --exit-code -- requirements.lock requirements-dev.lock
 
   dbt:
     runs-on: ubuntu-latest

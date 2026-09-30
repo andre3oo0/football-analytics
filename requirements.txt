@@ -1,8 +1,9 @@
 # Ingestion (Python 3.11+): fetch data and load the raw schema.
-requests>=2.31,<3.0          # HTTP client for the football-data.org API
-python-dotenv>=1.0,<2.0      # read FOOTBALL_DATA_API_KEY from a local .env
-duckdb>=1.1,<2.0             # local single-file warehouse
-truststore>=0.9,<1.0         # verify TLS against the OS trust store
+# Ranges live here; the exact versions installed are in requirements.lock.
+requests>=2.34.2,<3.0        # HTTP client for the football-data.org API
+python-dotenv>=1.2.3,<2.0    # read FOOTBALL_DATA_API_KEY from a local .env
+duckdb>=1.5.5,<2.0           # local single-file warehouse
+truststore>=0.10.4,<1.0      # verify TLS against the OS trust store
 
 # Transformation, testing and docs: dbt on top of DuckDB.
-dbt-duckdb>=1.9,<2.0         # pulls in dbt-core
+dbt-duckdb>=1.11.0,<2.0      # pulls in dbt-core

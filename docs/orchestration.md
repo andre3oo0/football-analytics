@@ -17,8 +17,9 @@ exception is the Pages deploy job below.
 Two jobs, run in parallel. A newer push to the same branch cancels a running
 CI job.
 
-**python**: `pip install -r requirements-dev.lock`, then `ruff check .` and
-`pytest`.
+**python**: `pip install -r requirements-dev.lock`, then `ruff check .`,
+`pytest`, and a check that the lock files match `requirements*.txt`: it
+recompiles both with `uv pip compile` and fails if either file changes.
 
 **dbt**:
 
@@ -155,8 +156,11 @@ pipeline job as an environment variable. It is never committed (only
 ## Dependencies and pinning
 
 Every action is pinned to a commit SHA, with the version in a comment.
-Dependabot (`.github/dependabot.yml`) opens monthly pull requests for GitHub
-Actions and for the pip requirements, and CI runs on each one.
+Dependabot (`.github/dependabot.yml`) opens one grouped pull request a month
+for GitHub Actions and one for the pip requirements, and CI runs on each. A pip
+update only moves the ranges in `requirements*.txt`, so its lock-file check
+fails until the locks are regenerated on that branch with the commands in
+[running-the-project.md](running-the-project.md).
 
 ## Setting it up on a fork
 

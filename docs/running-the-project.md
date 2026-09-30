@@ -59,8 +59,10 @@ cd dbt && dbt build --profiles-dir .
 The full ingestion CLI is in [ingestion.md](ingestion.md).
 
 To change a dependency, edit the range in `requirements.txt` or
-`requirements-dev.txt` and regenerate the lock files
-([uv](https://docs.astral.sh/uv/) is needed for this step only):
+`requirements-dev.txt` and regenerate the lock files. `uv` is in
+`requirements-dev.lock`. Existing pins are kept unless the new range rules
+them out; add `--upgrade` to move everything to the newest allowed versions.
+CI runs the same two commands and fails if the lock files change.
 
 ```bash
 uv pip compile requirements.txt --universal --python-version 3.11 -o requirements.lock
