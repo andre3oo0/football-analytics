@@ -29,6 +29,11 @@ makes it a usable incremental watermark: an unchanged season doesn't trigger a
 rebuild of `fact_standings`. The cost is one payload comparison per row, which
 is negligible at this size.
 
+The comparison ignores `lastUpdated` and the season's `currentMatchday`, which
+the API rewrites on every match even when the match itself hasn't changed.
+Without that, `rows_changed` would count a whole season every time a round
+advanced.
+
 ### Removed matches are deleted; teams are not
 
 A matches response is the complete fixture list for a season, so a match that
@@ -89,7 +94,7 @@ per-competition tables would only add UNIONs.
 
 ### A team-grain fact alongside the match fact
 
-`fct_team_matches` has one row per team per match. Questions about a team
+`fact_team_matches` has one row per team per match. Questions about a team
 ("goals scored by Arsenal", "home form") are sums over one column with one
 relationship to `dim_teams`. On `fact_matches` the same question needs the home
 and away columns added together under two relationships, one of them inactive
@@ -114,6 +119,14 @@ at a date near the end of its round and counts every result played by then,
 so past snapshots are stable and a team with a postponed game shows a game in
 hand, as it did at the time. The date comes from a heuristic; see the
 limitations below. The mechanism is in [data-model.md](data-model.md).
+
+### Snapshots run without gaps
+
+Snapshots cover matchday 1 to the latest matchday where most fixtures have
+been played, and every label in between gets one. A round postponed whole
+keeps the previous table, and one game played early from a later round doesn't
+create a snapshot for that round on its own. A BI matchday axis therefore has
+no holes, and the latest label always means a round that has mostly happened.
 
 ### The build is linear
 
@@ -171,6 +184,12 @@ has to be an explicit edit.
 nothing changes for two weeks while ingestion is healthy. Freshness on the data
 tables would warn for the wrong reason, so it is measured on
 `raw._load_runs.finished_at` for successful runs.
+
+### Orphaned mart tables are dropped
+
+The warehouse is carried from night to night, so a renamed model would leave
+its old table behind for good. An `on-run-end` hook (`drop_orphan_marts`)
+drops any table or view in `marts` that no model builds.
 
 ### Clean schema names
 

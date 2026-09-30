@@ -144,7 +144,7 @@ warehouse in place.
 | `dim_teams` | team (Type 1) |
 | `dim_date` | calendar day covering every season and kickoff |
 | `fact_matches` | match |
-| `fct_team_matches` | team per match (two rows per match) |
+| `fact_team_matches` | team per match (two rows per match) |
 | `fact_standings` | competition, season, team and matchday |
 
 `fact_standings` takes each matchday's snapshot as of a date, so a postponed
@@ -155,7 +155,7 @@ is in [docs/data-model.md](docs/data-model.md) and the reasoning in
 
 ## 🚀 Quickstart
 
-No API key needed. One real season (Premier League 2024/25) is committed in
+No API key needed. One real season (Bundesliga 2024/25) is committed in
 `tests/fixtures/raw`:
 
 ```bash
@@ -163,7 +163,7 @@ python -m venv .venv
 source .venv/bin/activate              # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.lock
 
-python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions PL
+python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions BL1
 cd dbt && dbt build --profiles-dir .
 ```
 
@@ -177,9 +177,9 @@ With a free football-data.org API key in `.env` (copy `.env.example`),
 | Layer | What it covers |
 |-------|----------------|
 | 🐍 **pytest** | API client retries, 404s and invalid bodies; response validation; the loader's idempotency, change-only upserts, deletes and rollback; a full ingestion run over the fixtures |
-| 🧪 **dbt unit tests** | standings on hand-built data: a postponed match, shared positions, a team with no game in a window; AWARDED and live matches; status normalisation |
+| 🧪 **dbt unit tests** | standings on hand-built data: a postponed match, a round postponed whole, a game brought forward, shared positions, a team with no game in a window; AWARDED and live matches; status normalisation |
 | 🔑 **generic tests** | keys, every foreign key, enum values, the grain of each fact |
-| 📐 **singular tests** | a complete double round-robin, `winner` agreeing with the score, scores present for every result, snapshots moving forward, plausible goal totals |
+| 📐 **singular tests** | a complete double round-robin, `winner` agreeing with the score, scores present for every result, snapshots moving forward with no gaps in the matchdays, plausible goal totals |
 | 📜 **contracts** | column names and types on all seven marts |
 | ⚖️ **reconciliation** | the derived table against the API's standings, team by team, for every season |
 | 🚨 **anomaly guards** | ingestion refuses a response that would delete more than 5 stored matches; each nightly run warns if the restored warehouse is more than a day old |

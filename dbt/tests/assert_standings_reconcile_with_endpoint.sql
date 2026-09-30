@@ -25,7 +25,7 @@ awarded as (
            sum(points)          as points,
            sum(goal_difference) as goal_difference,
            sum(goals_for)       as goals_for
-    from {{ ref('fct_team_matches') }}
+    from {{ ref('fact_team_matches') }}
     where status = 'AWARDED' and stage = 'REGULAR_SEASON'
     group by competition_code, season_id, team_id
 ),

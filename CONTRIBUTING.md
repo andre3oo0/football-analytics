@@ -16,7 +16,7 @@ pip install -r requirements-dev.lock # exact versions CI uses, plus pytest and r
 You don't need an API key to build. The committed fixture season is enough:
 
 ```bash
-python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions PL
+python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions BL1
 cd dbt && dbt build --profiles-dir .
 ```
 
@@ -28,7 +28,7 @@ Once a key is set, cache-first mode fetches any response that isn't cached yet.
 
 - DuckDB allows one writer. Don't run two commands against the warehouse at
   once, and close any GUI (DBeaver) holding the file open, or steps will block.
-- The fixture season is Premier League 2024/25 only. The other four leagues and
+- The fixture season is Bundesliga 2024/25 only. The other four leagues and
   the live season need an API key.
 - `fact_standings` is incremental. After changing its logic, rebuild it with
   `dbt build --profiles-dir . --select fact_standings+ --full-refresh`.
@@ -41,7 +41,7 @@ Once a key is set, cache-first mode fetches any response that isn't cached yet.
    ```bash
    ruff check .
    pytest
-   python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions PL
+   python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions BL1
    cd dbt && dbt build --profiles-dir .
    ```
 

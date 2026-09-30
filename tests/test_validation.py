@@ -11,9 +11,9 @@ from ingestion.validation import (
 
 
 def test_real_fixtures_pass(fixture_json):
-    validate_teams(fixture_json("PL_teams_2024.json"))
-    validate_matches(fixture_json("PL_matches_2024.json"))
-    validate_standings(fixture_json("PL_standings_2024.json"))
+    validate_teams(fixture_json("BL1_teams_2024.json"))
+    validate_matches(fixture_json("BL1_matches_2024.json"))
+    validate_standings(fixture_json("BL1_standings_2024.json"))
 
 
 @pytest.mark.parametrize("body, message", [

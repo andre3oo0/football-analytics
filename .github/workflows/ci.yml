@@ -46,7 +46,7 @@ jobs:
       - run: pip install -r requirements.lock
 
       - name: Load fixture season (no API calls)
-        run: python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions PL
+        run: python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions BL1
 
       - name: dbt build (full)
         working-directory: dbt

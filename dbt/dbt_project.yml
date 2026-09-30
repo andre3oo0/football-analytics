@@ -32,3 +32,7 @@ models:
     marts:
       +materialized: table
       +schema: marts
+
+# Drop marts tables that no model builds any more (see macros/drop_orphan_marts.sql).
+on-run-end:
+  - "{{ drop_orphan_marts() }}"

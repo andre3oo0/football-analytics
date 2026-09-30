@@ -22,7 +22,8 @@ pytest
 ruff check .
 ```
 
-`tests/fixtures/raw` holds real, minified responses for Premier League 2024/25.
+`tests/fixtures/raw` holds real, minified responses for Bundesliga 2024/25, which includes the awarded Union Berlin v Bochum match,
+so CI runs the reconciliation's AWARDED adjustment too.
 The same files let anyone run the dbt build without an API key.
 
 ## 2. dbt unit tests
@@ -34,6 +35,11 @@ The same files let anyone run the dbt build without an API key.
   include it and the postponed game first counts in the latest snapshot. It also
   checks that a team with no game in a window still gets a row, and that teams
   level on points, goal difference and goals scored share a position.
+- **`fact_standings_postponed_round_and_early_game`**: four teams. Matchday 3 is
+  postponed whole, so it keeps matchday 2's table and date. Matchday 5 has one
+  game played early and one not played, which isn't most of the round, so the
+  series ends at matchday 4 and the early game counts, by date, in matchday 4's
+  table.
 - **`int_matches_awarded_counts_postponed_does_not`**: AWARDED has a result and
   points; POSTPONED and SCHEDULED do not, and neither do IN_PLAY or SUSPENDED
   matches that already carry a score and a provisional winner.
@@ -46,13 +52,13 @@ Declared in the `_*.yml` files next to the models:
 
 - `unique` and `not_null` on every primary key, including the seed.
 - A `relationships` test on every foreign key: every fact to each of its
-  dimensions (including `dim_date`), `fct_team_matches` to `fact_matches`, and
+  dimensions (including `dim_date`), `fact_team_matches` to `fact_matches`, and
   `dim_seasons` to `dim_competitions`.
 - `unique_combination`, a local generic test in `dbt/tests/generic/`, on the
-  grain of `fct_team_matches` (match, team) and `fact_standings` (competition,
+  grain of `fact_team_matches` (match, team) and `fact_standings` (competition,
   season, team, matchday).
 - `accepted_values` on `status`, `stage`, `winner`, `duration`, `standing_type`
-  and `fct_team_matches.result`. The lists hold the values seen in the data and
+  and `fact_team_matches.result`. The lists hold the values seen in the data and
   fail the build on anything new. `stage` accepts only `REGULAR_SEASON`.
 
 ## 4. Singular tests
@@ -68,6 +74,7 @@ SQL in `dbt/tests/`; each returns offending rows and fails if there are any.
 | `assert_season_attributes_consistent` | a season whose matches disagree on its start or end date, which `int_seasons` relies on |
 | `assert_standings_points_consistent` | `points <> 3 * won + drawn` at any snapshot. Points come from `winner` and W/D from the scores, so this compares two fields; it would also catch a points deduction |
 | `assert_standings_snapshots_move_forward` | an `as_of_date` or a team's `played` going backwards as the matchday rises |
+| `assert_standings_matchdays_contiguous` | a season whose snapshots don't run 1, 2, ..., N, or a team missing a row at one of them |
 | `assert_standings_reconcile_with_endpoint` | the derived table disagreeing with the standings endpoint |
 | `assert_goals_plausible` | a match with more than 12 goals, or a season of 100+ results averaging outside 1.8 to 4.0 goals a match (full seasons in the data average 2.4 to 3.3), which points at a scrambled score feed |
 

@@ -57,7 +57,7 @@ Created by `ingestion/loader.py`.
 | refresh | boolean | whether `--refresh` was set |
 | endpoints_loaded | integer | 0 for a failed run |
 | rows_received | integer | 0 for a failed run |
-| rows_changed | integer | rows inserted or rewritten; 0 for a failed run |
+| rows_changed | integer | rows inserted or rewritten, ignoring `lastUpdated` and the season's `currentMatchday`; 0 for a failed run |
 | rows_deleted | integer | matches deleted; 0 for a failed run |
 | failures | varchar | one line per failed endpoint; null on success |
 
@@ -201,7 +201,7 @@ No model reads `stg_standings`; `assert_standings_reconcile_with_endpoint` does.
 | season_label | varchar | e.g. "2024/25" |
 | season_start_date | date | |
 | season_end_date | date | |
-| current_matchday | integer | API value at the latest load |
+| current_matchday | integer | highest value in any stored match payload |
 
 ### marts.dim_date: PK (date_day)
 
@@ -245,7 +245,7 @@ No model reads `stg_standings`; `assert_standings_reconcile_with_endpoint` does.
 | has_result | boolean | FINISHED or AWARDED |
 | _loaded_at | timestamp | when raw last saw this match's payload change |
 
-### marts.fct_team_matches: grain (match_id, team_id)
+### marts.fact_team_matches: grain (match_id, team_id)
 
 | Column | Type | Notes |
 |--------|------|-------|

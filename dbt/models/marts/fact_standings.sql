@@ -6,9 +6,13 @@
 -- played weeks later, and a few are brought forward. So each snapshot is taken
 -- AS OF A DATE and counts every result played by then, whatever its label:
 --
+--   played round  = a matchday where most fixtures have a result. Snapshots
+--                   run from matchday 1 to the latest played round, with no
+--                   gaps.
 --   as_of_date(N) = the last day of matchday N's on-schedule games, where
 --                   on-schedule means within 3 days of the round's median
---                   kickoff date; forced non-decreasing across matchdays.
+--                   kickoff date; forced non-decreasing across matchdays. A
+--                   matchday that isn't a played round keeps the previous date.
 --   latest N      = the date of the season's latest result, so the newest
 --                   snapshot is always the current table.
 --
@@ -33,7 +37,7 @@
 {% if is_incremental() %}
 with changed_seasons as (
     select competition_code, season_id
-    from {{ ref('fct_team_matches') }}
+    from {{ ref('fact_team_matches') }}
     where _loaded_at > (select coalesce(max(_loaded_at), timestamp '1900-01-01') from {{ this }})
 
     union
@@ -44,7 +48,7 @@ with changed_seasons as (
     select competition_code, season_id
     from (
         select competition_code, season_id, count(*) filter (where has_result) as n_results
-        from {{ ref('fct_team_matches') }}
+        from {{ ref('fact_team_matches') }}
         where stage = 'REGULAR_SEASON'
         group by competition_code, season_id
     ) now
@@ -61,13 +65,13 @@ with changed_seasons as (
 
 team_matches as (
     select m.*
-    from {{ ref('fct_team_matches') }} m
+    from {{ ref('fact_team_matches') }} m
     join changed_seasons using (competition_code, season_id)
     where m.stage = 'REGULAR_SEASON'
 ),
 {% else %}
 with team_matches as (
-    select * from {{ ref('fct_team_matches') }}
+    select * from {{ ref('fact_team_matches') }}
     where stage = 'REGULAR_SEASON'
 ),
 {% endif %}
@@ -80,6 +84,15 @@ season_loaded_at as (
 
 results as (
     select * from team_matches where has_result
+),
+
+-- how many fixtures each matchday has, and how many of them have a result
+round_progress as (
+    select competition_code, season_id, matchday,
+           count(distinct match_id)                           as n_fixtures,
+           count(distinct match_id) filter (where has_result) as n_results
+    from team_matches
+    group by competition_code, season_id, matchday
 ),
 
 round_medians as (
@@ -98,19 +111,46 @@ round_ends as (
     group by r.competition_code, r.season_id, r.matchday
 ),
 
+-- A matchday is "played" once most of its fixtures have a result. The latest
+-- played matchday ends the series, and every label from 1 up to it gets a
+-- snapshot, so there are no gaps. A matchday that isn't played yet (a round
+-- postponed as a whole, or one game brought forward from a later round) has no
+-- date of its own and carries the previous snapshot's date forward.
+latest_round as (
+    select competition_code, season_id, max(matchday) as latest_matchday
+    from round_progress
+    where n_results * 2 > n_fixtures
+    group by competition_code, season_id
+),
+
+labels as (
+    select
+        p.competition_code,
+        p.season_id,
+        p.matchday,
+        case when p.n_results * 2 > p.n_fixtures then e.round_end_date end as round_end_date,
+        p.matchday = l.latest_matchday                                        as is_latest
+    from round_progress p
+    join latest_round l using (competition_code, season_id)
+    left join round_ends e using (competition_code, season_id, matchday)
+    where p.matchday <= l.latest_matchday
+),
+
 snapshots as (
     select
         competition_code,
         season_id,
         matchday,
+        is_latest,
         max(round_end_date) over (partition by competition_code, season_id order by matchday
-                                  rows between unbounded preceding and current row) as as_of_date,
-        matchday = max(matchday) over (partition by competition_code, season_id) as is_latest
-    from round_ends
+                                  rows between unbounded preceding and current row) as as_of_date
+    from labels
 ),
 
-latest_result as (
-    select competition_code, season_id, max(kickoff_date) as last_result_date
+result_dates as (
+    select competition_code, season_id,
+           min(kickoff_date) as first_result_date,
+           max(kickoff_date) as last_result_date
     from results
     group by competition_code, season_id
 ),
@@ -120,9 +160,13 @@ snapshot_windows as (
         s.competition_code,
         s.season_id,
         s.matchday,
-        case when s.is_latest then l.last_result_date else s.as_of_date end as as_of_date
+        case
+            when s.is_latest then d.last_result_date
+            -- only when the opening matchdays aren't played yet: nothing counts
+            else coalesce(s.as_of_date, d.first_result_date - 1)
+        end as as_of_date
     from snapshots s
-    join latest_result l using (competition_code, season_id)
+    join result_dates d using (competition_code, season_id)
 ),
 
 -- Each result lands in exactly one snapshot: the first whose as_of_date is on

@@ -25,7 +25,7 @@ def no_api_key(monkeypatch):
 
 def ingest(db, cache, *extra):
     return run.main(["--db", str(db), "--cache-dir", str(cache),
-                     "--season", "2024", "--competitions", "PL", *extra])
+                     "--season", "2024", "--competitions", "BL1", *extra])
 
 
 def runs(db):
@@ -46,7 +46,7 @@ def test_fixture_run_loads_and_audits(tmp_path, cache):
 
 def test_one_bad_endpoint_rolls_back_every_endpoint(tmp_path, cache):
     db = tmp_path / "football.duckdb"
-    (cache / "PL_standings_2024.json").write_text('{"standings": "not a list"}')
+    (cache / "BL1_standings_2024.json").write_text('{"standings": "not a list"}')
 
     assert ingest(db, cache) == 1
     with duckdb.connect(str(db), read_only=True) as con:
@@ -55,7 +55,7 @@ def test_one_bad_endpoint_rolls_back_every_endpoint(tmp_path, cache):
         failures = con.execute("SELECT failures FROM raw._load_runs").fetchone()[0]
     assert counts == [0, 0, 0]
     assert runs(db) == [("failed", 0, 0)]
-    assert "PL/standings" in failures
+    assert "BL1/standings" in failures
 
 
 def test_unknown_competition_is_an_error(tmp_path, cache):

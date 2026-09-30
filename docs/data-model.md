@@ -14,7 +14,7 @@ design are in [design-decisions.md](design-decisions.md).
 **`dim_seasons`**: one row per competition-season, from `int_seasons`. Key
 `season_id` (unique per competition), with `competition_code`, `season_label`
 ("2024/25"), start and end dates, and `current_matchday`. The last is the
-API's value at the latest load and goes stale once a season ends.
+highest value in any stored match payload, and goes stale once a season ends.
 
 **`dim_teams`**: one row per team, from `stg_teams`. `team_id` is stable across
 seasons, so a club that is relegated and later promoted is one row. Type 1: a
@@ -30,7 +30,7 @@ month start and week start.
 | Fact | Grain | Keys to dimensions |
 |------|-------|--------------------|
 | `fact_matches` | one row per match | `competition_code`, `season_id`, `home_team_id`, `away_team_id`, `kickoff_date` |
-| `fct_team_matches` | one row per team per match | `competition_code`, `season_id`, `team_id`, `kickoff_date` (plus `match_id` to `fact_matches`) |
+| `fact_team_matches` | one row per team per match | `competition_code`, `season_id`, `team_id`, `kickoff_date` (plus `match_id` to `fact_matches`) |
 | `fact_standings` | one row per competition, season, team and matchday | `competition_code`, `season_id`, `team_id`, `as_of_date` |
 
 `kickoff_date` is the UTC date of kickoff.
@@ -48,7 +48,7 @@ is coalesced to zero.
 `has_result` is true for `FINISHED` and `AWARDED`. Points (3/1/0) come from the
 API's `winner` field. `dim_teams` plays two roles here, home and away.
 
-### fct_team_matches
+### fact_team_matches
 
 The same matches unpivoted: each match appears once from the home side and once
 from the away side, with `team_id`, `opponent_team_id`, `is_home`,
@@ -59,7 +59,7 @@ included with null measures, so a team's full schedule is here.
 
 ### fact_standings
 
-The league table after each matchday, computed from `fct_team_matches`
+The league table after each matchday, computed from `fact_team_matches`
 (regular-season rows with a result). Each row has cumulative `played`, `won`,
 `drawn`, `lost`, `goals_for`, `goals_against`, `goal_difference`, `points`
 and `position`, plus the `as_of_date` the snapshot is taken at. Points are
@@ -72,25 +72,34 @@ round and a few are brought forward, so "all games labelled matchday N or
 earlier" doesn't describe the table at any real moment. Each snapshot is taken
 as of a date instead:
 
-1. For each matchday, take the median kickoff date of its results. The round's
-   end date is the latest kickoff within 3 days of that median, which leaves
-   out games played far from their round.
-2. `as_of_date` is the running maximum of those end dates, so it never goes
-   backwards as the matchday rises.
-3. The latest matchday's `as_of_date` is the date of the season's latest
-   result, so the newest snapshot is always the current table.
-4. Each result is assigned to exactly one snapshot: the first whose
+1. A matchday is *played* once most of its fixtures have a result. Snapshots
+   run from matchday 1 to the latest played matchday, with no gaps, so a
+   matchday axis in a BI tool never skips a value.
+2. For each played matchday, take the median kickoff date of its results. The
+   round's end date is the latest kickoff within 3 days of that median, which
+   leaves out games played far from their round.
+3. `as_of_date` is the running maximum of those end dates, so it never goes
+   backwards as the matchday rises. A matchday that isn't played (a round
+   postponed whole) has no end date and keeps the previous snapshot's date,
+   so its table is the previous one.
+4. The latest matchday's `as_of_date` is the date of the season's latest
+   result, so the newest snapshot is always the current table. A game brought
+   forward from a later round counts there by date.
+5. Each result is assigned to exactly one snapshot: the first whose
    `as_of_date` is on or after its kickoff. A postponed game therefore counts
    in the snapshot after it is played, whatever its label.
-5. Every team is crossed with every snapshot, so a team with no game in a
+6. Every team is crossed with every snapshot, so a team with no game in a
    window still gets a row. Window sums over that scaffold give the cumulative
    figures.
-6. `position` is `rank()` by points, then goal difference, then goals scored.
+7. `position` is `rank()` by points, then goal difference, then goals scored.
    Teams level on all three share a position.
 
 A past snapshot does not change when a postponed game is finally played; until
-then the team shows a game in hand. The unit test in `_unit_tests.yml` pins this
-behaviour down on six teams over three matchdays.
+then the team shows a game in hand. Two unit tests in `_unit_tests.yml` pin
+this down: a postponed game, and a round postponed whole alongside a game
+brought forward.
+
+A season has no snapshots until most of matchday 1 has been played.
 
 ### Incremental build
 
@@ -99,7 +108,7 @@ season_id]` and `incremental_strategy = 'delete+insert'`.
 
 - On a full build every season is derived.
 - On an incremental build, a season is re-derived when either:
-  - any of its `fct_team_matches` rows has a `_loaded_at` newer than the newest
+  - any of its `fact_team_matches` rows has a `_loaded_at` newer than the newest
     `_loaded_at` in the table, or
   - its number of results differs from the sum of `played` in its latest
     snapshot, which is how a match deleted upstream is noticed.

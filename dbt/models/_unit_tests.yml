@@ -21,7 +21,7 @@ unit_tests:
       macros:
         is_incremental: false
     given:
-      - input: ref('fct_team_matches')
+      - input: ref('fact_team_matches')
         format: csv
         rows: |
           match_id,team_id,competition_code,season_id,matchday,kickoff_date,stage,has_result,goals_for,goals_against,points,result,_loaded_at
@@ -67,6 +67,68 @@ unit_tests:
         4,3,2026-08-22,3,2,-1,5
         5,3,2026-08-22,3,2,-3,6
         6,3,2026-08-22,3,5,1,2
+
+  # Four teams (A=1, B=2, C=3, D=4), two fixtures per matchday:
+  #
+  #   MD1 2026-08-01  A 1-0 B   C 0-0 D
+  #   MD2 2026-08-08  A 2-0 C   B 1-1 D
+  #   MD3             A v D, B v C both postponed (no results)
+  #   MD4 2026-08-22  A 0-0 B   C 1-0 D
+  #   MD5             A 1-0 C brought forward to 08-20; B v D not played
+  #
+  # MD3 has no played games, so it keeps MD2's table and date. MD5 has one of
+  # two games played, which isn't most of the round, so the series stops at
+  # MD4. The brought-forward A v C still counts by date, in MD4's table.
+  - name: fact_standings_postponed_round_and_early_game
+    model: fact_standings
+    overrides:
+      macros:
+        is_incremental: false
+    given:
+      - input: ref('fact_team_matches')
+        format: csv
+        rows: |
+          match_id,team_id,competition_code,season_id,matchday,kickoff_date,stage,has_result,goals_for,goals_against,points,result,_loaded_at
+          1,1,XX,98,1,2026-08-01,REGULAR_SEASON,true,1,0,3,W,2026-08-23 06:00:00
+          1,2,XX,98,1,2026-08-01,REGULAR_SEASON,true,0,1,0,L,2026-08-23 06:00:00
+          2,3,XX,98,1,2026-08-01,REGULAR_SEASON,true,0,0,1,D,2026-08-23 06:00:00
+          2,4,XX,98,1,2026-08-01,REGULAR_SEASON,true,0,0,1,D,2026-08-23 06:00:00
+          3,1,XX,98,2,2026-08-08,REGULAR_SEASON,true,2,0,3,W,2026-08-23 06:00:00
+          3,3,XX,98,2,2026-08-08,REGULAR_SEASON,true,0,2,0,L,2026-08-23 06:00:00
+          4,2,XX,98,2,2026-08-08,REGULAR_SEASON,true,1,1,1,D,2026-08-23 06:00:00
+          4,4,XX,98,2,2026-08-08,REGULAR_SEASON,true,1,1,1,D,2026-08-23 06:00:00
+          5,1,XX,98,3,2026-08-15,REGULAR_SEASON,false,,,,,2026-08-23 06:00:00
+          5,4,XX,98,3,2026-08-15,REGULAR_SEASON,false,,,,,2026-08-23 06:00:00
+          6,2,XX,98,3,2026-08-15,REGULAR_SEASON,false,,,,,2026-08-23 06:00:00
+          6,3,XX,98,3,2026-08-15,REGULAR_SEASON,false,,,,,2026-08-23 06:00:00
+          7,1,XX,98,4,2026-08-22,REGULAR_SEASON,true,0,0,1,D,2026-08-23 06:00:00
+          7,2,XX,98,4,2026-08-22,REGULAR_SEASON,true,0,0,1,D,2026-08-23 06:00:00
+          8,3,XX,98,4,2026-08-22,REGULAR_SEASON,true,1,0,3,W,2026-08-23 06:00:00
+          8,4,XX,98,4,2026-08-22,REGULAR_SEASON,true,0,1,0,L,2026-08-23 06:00:00
+          9,1,XX,98,5,2026-08-20,REGULAR_SEASON,true,1,0,3,W,2026-08-23 06:00:00
+          9,3,XX,98,5,2026-08-20,REGULAR_SEASON,true,0,1,0,L,2026-08-23 06:00:00
+          10,2,XX,98,5,2026-08-29,REGULAR_SEASON,false,,,,,2026-08-23 06:00:00
+          10,4,XX,98,5,2026-08-29,REGULAR_SEASON,false,,,,,2026-08-23 06:00:00
+    expect:
+      format: csv
+      rows: |
+        team_id,matchday,as_of_date,played,points,goal_difference,position
+        1,1,2026-08-01,1,3,1,1
+        2,1,2026-08-01,1,0,-1,4
+        3,1,2026-08-01,1,1,0,2
+        4,1,2026-08-01,1,1,0,2
+        1,2,2026-08-08,2,6,3,1
+        2,2,2026-08-08,2,1,-1,3
+        3,2,2026-08-08,2,1,-2,4
+        4,2,2026-08-08,2,2,0,2
+        1,3,2026-08-08,2,6,3,1
+        2,3,2026-08-08,2,1,-1,3
+        3,3,2026-08-08,2,1,-2,4
+        4,3,2026-08-08,2,2,0,2
+        1,4,2026-08-22,4,10,4,1
+        2,4,2026-08-22,3,2,-1,3
+        3,4,2026-08-22,4,4,-2,2
+        4,4,2026-08-22,3,2,-1,3
 
   - name: int_matches_awarded_counts_postponed_does_not
     model: int_matches

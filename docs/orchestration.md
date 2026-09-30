@@ -24,7 +24,7 @@ CI job.
 
 1. `pip install -r requirements.lock`.
 2. Load the fixture season with no API calls:
-   `python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions PL`.
+   `python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions BL1`.
 3. `dbt build --profiles-dir .`: seed, models, unit tests and data tests.
 4. `dbt build --profiles-dir . --select fact_standings+` again, which runs
    `fact_standings` down its incremental branch against the table the first
