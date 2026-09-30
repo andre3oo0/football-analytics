@@ -5,8 +5,9 @@
 
 A data-engineering portfolio project. Python pulls league data from the
 football-data.org API into a DuckDB warehouse, dbt models it into a tested star
-schema, and GitHub Actions runs it every night at 02:00 South African time. The marts are exported to
-Parquet for a BI tool.
+schema, and GitHub Actions runs it every night at 02:00 South African time
+(started by an external cron service, since GitHub's own scheduler runs
+hours late). The marts are exported to Parquet for a BI tool.
 
 The work is in the ingestion guarantees, the dimensional model and the tests.
 There is no dashboard in the repo yet (see [Known limitations](#known-limitations)).

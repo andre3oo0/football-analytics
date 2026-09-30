@@ -5,7 +5,7 @@ Two GitHub Actions workflows in `.github/workflows/`.
 | Workflow | Runs on | Needs the API key | Purpose |
 |----------|---------|-------------------|---------|
 | `ci.yml` | every pull request and push to `main` | no | lint, tests, a full dbt build on the fixture season |
-| `pipeline.yml` | 00:00 UTC daily (02:00 SAST) and manual dispatch | yes | the real pipeline on live data |
+| `pipeline.yml` | 02:00 SAST nightly via an external trigger, a fallback schedule, and manual dispatch | yes | the real pipeline on live data |
 
 Both run on `ubuntu-latest` with Python 3.11 and have read-only repository
 permissions.
@@ -33,7 +33,13 @@ CI job.
 
 ## pipeline.yml
 
-One job, steps in order:
+A small `decide` job runs first. For a scheduled (fallback) run it checks
+whether a run created since 23:50 UTC has already succeeded and, if so, skips
+the rest (see [Schedule](#schedule)). Manual and API-dispatched runs always go
+ahead. It needs `actions: read` to list runs; nothing else has more than
+`contents: read`.
+
+Then `run-pipeline`, steps in order:
 
 1. Check out, set up Python, `pip install -r requirements.txt`.
 2. **Restore the warehouse.** `actions/cache/restore` restores
@@ -60,16 +66,60 @@ cache. The next run starts from that one.
 
 ### Schedule
 
-The cron entry is `0 0 * * *`: 00:00 UTC, which is 02:00 SAST all year
-(South Africa is UTC+2 with no daylight saving). GitHub often starts scheduled
-runs a few minutes late.
+The nightly run should start at 02:00 SAST, which is 00:00 UTC all year
+(South Africa is UTC+2 with no daylight saving). That time is chosen so no
+match is in play: the latest European kickoffs are around 21:00 CET (20:00 UTC
+in winter) and finish about two hours later. A run during a live game would
+load it as IN_PLAY, and the reconciliation test could fail if the standings
+endpoint already counted it.
 
-The time is chosen so no match is in play. The latest European kickoffs are
-around 21:00 CET (20:00 UTC in winter) and finish about two hours later. A run
-during a live game would load it as IN_PLAY, and the reconciliation test could
-fail if the standings endpoint already counted it. If a run does fail, the
-cache isn't updated, so no state is lost, and the next run picks up the final
-result.
+GitHub's own `schedule` trigger can't hold that time. It is best effort, and
+runs are delayed under load, most of all at the top of the hour. Every
+scheduled run of this workflow from 10 to 29 September 2026 started between
+4 h 23 min and 7 h 23 min after its 06:00 UTC slot. So the run is started from
+outside GitHub:
+
+- **Primary: an external cron service** calls the `workflow_dispatch` API at
+  02:00 SAST. Dispatched runs start within seconds. Setup is below.
+- **Fallback: the `schedule` entry** (`0 0 * * *`). If the external trigger
+  didn't fire or its run failed, this run does the work, just late. If
+  tonight's run already succeeded, the `decide` job skips it, so the data isn't
+  pulled twice.
+
+If a run fails, the cache isn't updated, so no state is lost, and the next run
+picks up where the last good one left off.
+
+### Setting up the external trigger
+
+Any cron service that can send an HTTPS POST with headers works. These steps
+use [cron-job.org](https://cron-job.org) (free).
+
+1. **Create a fine-grained personal access token** on GitHub: Settings >
+   Developer settings > Personal access tokens > Fine-grained tokens >
+   Generate new token.
+   - Repository access: *Only select repositories*, this repository only.
+   - Permissions: *Actions: Read and write* (Metadata: Read-only is added
+     automatically). Nothing else.
+   - Expiration: the longest you're comfortable with. Put a reminder in your
+     calendar to renew it; an expired token makes the call fail with 401 and
+     the fallback schedule takes over.
+2. **Create the cron job** on cron-job.org:
+   - URL: `https://api.github.com/repos/<owner>/<repo>/actions/workflows/pipeline.yml/dispatches`
+   - Schedule: every day at 02:00, time zone *Africa/Johannesburg*.
+   - Advanced > Request method: `POST`.
+   - Headers:
+     - `Authorization: Bearer <token>`
+     - `Accept: application/vnd.github+json`
+     - `X-GitHub-Api-Version: 2022-11-28`
+     - `Content-Type: application/json`
+   - Request body: `{"ref":"main"}`
+   - Turn on failure notifications, so a failed call emails you.
+3. **Test it** with the service's "Test run" button. GitHub answers
+   `204 No Content`, and a new `workflow_dispatch` run appears under Actions >
+   football-data-pipeline within a few seconds.
+
+The token only allows starting and reading workflow runs on this repository.
+Keep it in the cron service only; it doesn't go in the repository.
 
 ### Cache eviction
 
@@ -103,5 +153,7 @@ Actions and for the pip requirements, and CI runs on each one.
    secret, `FOOTBALL_DATA_API_KEY`.
 3. Run Actions > football-data-pipeline > Run workflow once. With an empty
    cache, it bootstraps the completed seasons.
+4. Set up the external trigger ([above](#setting-up-the-external-trigger)).
+   Without it, the fallback schedule still runs every night, just hours late.
 
 `ci.yml` needs no setup.
