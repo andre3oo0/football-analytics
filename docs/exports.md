@@ -1,8 +1,8 @@
 # Exports
 
-The marts are exported to Parquet for a BI tool. No Power BI file is committed;
-the model design below is what the paused Power BI work used, updated for the
-current marts.
+The marts are exported to Parquet for a BI tool. No Power BI file is
+committed; the section below describes how a Power BI model over the marts is
+set up.
 
 ## export_marts.py
 
@@ -23,7 +23,7 @@ printing each table's row count. It exports the seven marts only: `fact_matches`
 | `--out` | `exports/` |
 
 Re-running overwrites the files. `exports/*.parquet` is git-ignored. The
-scheduled pipeline uploads the files as the `marts-parquet` artifact, kept for
+nightly pipeline uploads the files as the `marts-parquet` artifact, kept for
 14 days.
 
 ## A Power BI model over the marts

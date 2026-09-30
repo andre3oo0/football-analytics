@@ -41,7 +41,7 @@ committed SVGs differ.
 Five leagues: Premier League (PL), La Liga (PD), Bundesliga (BL1), Serie A (SA)
 and Ligue 1 (FL1). The list lives in
 [`dbt/seeds/seed_competitions.csv`](dbt/seeds/seed_competitions.csv), which both
-ingestion and `dim_competitions` read. The scheduled pipeline holds the live
+ingestion and `dim_competitions` read. The nightly pipeline holds the live
 2026/27 season plus 2024/25 and 2025/26. Three endpoints per competition:
 teams, matches and standings.
 
@@ -99,15 +99,14 @@ With a free football-data.org API key in `.env` (copy `.env.example`),
 CI runs all of it on every pull request, with no API key. Details in
 [docs/testing-and-quality.md](docs/testing-and-quality.md).
 
-### What the reconciliation found
+### AWARDED matches
 
-Building the reconciliation test turned up a gap in the source:
 football-data.org's standings table leaves out AWARDED matches, while the
-leagues count them. There are three in the data: Union Berlin 0-2 Bochum
-(Bundesliga 2024/25), Montpellier 0-2 Saint-Étienne (Ligue 1 2024/25) and
-Nantes 0-0 Toulouse (Ligue 1 2025/26). `fact_standings` counts them, as the
-leagues do. The test subtracts their contribution before comparing, and with
-that the derived table matches the endpoint for every season.
+leagues count them. The data holds three: Union Berlin 0-2 Bochum (Bundesliga
+2024/25), Montpellier 0-2 Saint-Étienne (Ligue 1 2024/25) and Nantes 0-0
+Toulouse (Ligue 1 2025/26). `fact_standings` counts them, as the leagues do,
+and the reconciliation test subtracts their contribution before comparing with
+the endpoint.
 
 ## Known limitations
 
@@ -118,9 +117,11 @@ that the derived table matches the endpoint for every season.
 - Points deductions are not modelled. The reconciliation test would fail if one
   happened.
 - No history: `dim_teams` is Type 1 and raw keeps only the current payload.
-- The scheduled pipeline keeps its warehouse in the GitHub Actions cache, which
+- The nightly pipeline keeps its warehouse in the GitHub Actions cache, which
   GitHub evicts after 7 days without use. The next run re-pulls the completed
   seasons.
+- The 02:00 start depends on an external cron service and a GitHub token that
+  expires. If either fails, GitHub's own schedule runs the pipeline, hours late.
 - Each run re-pulls whole seasons; there is no date-windowed extraction.
 - DuckDB allows one writer, so steps run one after another.
 - `kickoff_date` is the UTC date of kickoff.
@@ -150,6 +151,6 @@ dbt/
 tests/                pytest suite; fixtures/raw holds one real season
 export_marts.py       marts -> Parquet
 docs/                 reference docs and generated diagrams
-.github/workflows/    ci.yml (pull requests) and pipeline.yml (daily)
+.github/workflows/    ci.yml (pull requests) and pipeline.yml (nightly)
 data/                 DuckDB file and cached JSON (git-ignored)
 ```

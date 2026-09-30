@@ -73,11 +73,10 @@ in winter) and finish about two hours later. A run during a live game would
 load it as IN_PLAY, and the reconciliation test could fail if the standings
 endpoint already counted it.
 
-GitHub's own `schedule` trigger can't hold that time. It is best effort, and
-runs are delayed under load, most of all at the top of the hour. Every
-scheduled run of this workflow from 10 to 29 September 2026 started between
-4 h 23 min and 7 h 23 min after its 06:00 UTC slot. So the run is started from
-outside GitHub:
+GitHub's own `schedule` trigger can't hold that time. It is best effort:
+runs are delayed under load, most of all at the top of the hour, and for this
+repository they typically start four to seven hours late. So the run is started
+from outside GitHub:
 
 - **Primary: an external cron service** calls the `workflow_dispatch` API at
   02:00 SAST. Dispatched runs start within seconds. Setup is below.

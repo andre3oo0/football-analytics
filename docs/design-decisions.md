@@ -53,7 +53,7 @@ atomically, and validating again on read means a bad file is never trusted.
 ### Every run is logged in raw._load_runs
 
 The log holds status, counts and failures per run. It is what source freshness
-is measured on (see below), and it is where to look first when a scheduled run
+is measured on (see below), and it is where to look first when a pipeline run
 fails.
 
 ### Timestamps are naive UTC
@@ -138,6 +138,11 @@ longer exist after a snapshot date moves. A key per matchday row would leave
 those orphans behind, and `merge` would need update logic for the same
 outcome.
 
+A season is rebuilt when any of its matches has a newer `_loaded_at` than the
+table, or when its number of results differs from the `played` total of its
+latest snapshot. The second condition covers a match deleted upstream, which
+moves no `_loaded_at`.
+
 ### Status is normalised in staging, and the test fails the build
 
 The free tier sometimes returns a kickoff timestamp in the match `status`
@@ -168,9 +173,18 @@ each other in a shared warehouse, which doesn't apply to one local file.
 
 ## Operations
 
+### The nightly run is started from outside GitHub
+
+GitHub's `schedule` trigger is best effort and, for this repository, starts
+runs several hours late. The run needs to start at 02:00 SAST, after the
+evening games, so an external cron service calls the `workflow_dispatch` API at
+that time. The `schedule` entry stays as a fallback, and a `decide` job skips it
+when that night's run has already succeeded. The cost is an outside dependency
+and a token to renew; if either lapses, the fallback still runs, late.
+
 ### State lives in the Actions cache
 
-The scheduled pipeline restores the previous warehouse and JSON cache at the
+The nightly pipeline restores the previous warehouse and JSON cache at the
 start of a run and saves them only if the run succeeds. A failed run can't
 overwrite good state, and the completed seasons aren't re-fetched every day.
 The Actions cache is the simplest store that needs no infrastructure. Its cost
@@ -180,7 +194,7 @@ is eviction, covered below.
 
 DuckDB allows one writer. Steps run as separate sequential processes, the
 export opens the file read-only, and the workflow's concurrency group stops two
-scheduled runs overlapping.
+pipeline runs overlapping.
 
 ## Known limitations
 
@@ -198,15 +212,15 @@ scheduled runs overlapping.
 - **No history.** `dim_teams` is Type 1 and raw keeps only the current payload
   per key, so a renamed club shows its new name for every season.
 - **State can be evicted.** GitHub removes caches unused for 7 days. The next
-  scheduled run then finds no warehouse and bootstraps the completed seasons
+  run then finds no warehouse and bootstraps the completed seasons
   from the API (30 requests, a few minutes at the rate limit).
 - **Whole-season pulls.** Every run fetches each competition's full season.
   With five leagues that is 15 requests a run; date-windowed extraction would
   matter only at a larger scale.
-- **A deleted match alone doesn't trigger an incremental rebuild.** The
-  watermark is the newest `_loaded_at` among existing rows, so if a match is
-  deleted from raw and nothing else in its season changes, `fact_standings`
-  keeps the old season until the next change or a `--full-refresh`.
+- **The 02:00 start depends on an outside service.** The external cron
+  service and its fine-grained GitHub token are outside the repository. If the
+  call fails or the token expires, the `schedule` fallback runs the pipeline
+  hours late.
 - **Single-writer DuckDB file.** Nothing runs in parallel against the
   warehouse.
 - **UTC dates.** `kickoff_date` is the UTC date, which can differ from the local

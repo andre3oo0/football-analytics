@@ -97,16 +97,18 @@ behaviour down on six teams over three matchdays.
 season_id]` and `incremental_strategy = 'delete+insert'`.
 
 - On a full build every season is derived.
-- On an incremental build, the seasons with any `fct_team_matches` row whose
-  `_loaded_at` is newer than the newest `_loaded_at` in the table are
-  re-derived. Because the unique key is the season, delete+insert removes all of
-  that season's old rows and inserts the new ones, so no stale matchday rows
-  survive.
+- On an incremental build, a season is re-derived when either:
+  - any of its `fct_team_matches` rows has a `_loaded_at` newer than the newest
+    `_loaded_at` in the table, or
+  - its number of results differs from the sum of `played` in its latest
+    snapshot, which is how a match deleted upstream is noticed.
+
+  Because the unique key is the season, delete+insert removes all of that
+  season's old rows and inserts the new ones, so no stale matchday rows survive.
 
 The watermark works because raw only restamps `_loaded_at` when a payload
 changes. The table's `_loaded_at` is the latest change among the season's
-matches. An incremental build after a changed match gives the same result as a
-full refresh; CI runs a second, incremental build on every pull request.
+matches. CI runs a second, incremental build on every pull request.
 
 ## Staging and intermediate
 

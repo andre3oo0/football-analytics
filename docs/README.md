@@ -12,7 +12,7 @@ covers making a change.
 4. [Data model](data-model.md): the star schema, the ERD, and how `fact_standings` is built.
 5. [Data dictionary](data-dictionary.md): every table and column, with types.
 6. [Testing and quality](testing-and-quality.md): each test layer and what it catches.
-7. [Orchestration](orchestration.md): the CI and scheduled pipeline workflows.
+7. [Orchestration](orchestration.md): the CI workflow, the nightly pipeline and its external trigger.
 8. [Design decisions](design-decisions.md): the decisions, their reasons, and the known limitations.
 9. [Exports](exports.md): the Parquet export and guidance for a Power BI model.
 

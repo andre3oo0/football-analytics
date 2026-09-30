@@ -101,12 +101,12 @@ Views, 1:1 with raw.
 | home_team_name | varchar | |
 | away_team_id | bigint | |
 | away_team_name | varchar | |
-| winner | varchar | HOME_TEAM, AWAY_TEAM or DRAW; null until played |
+| winner | varchar | HOME_TEAM, AWAY_TEAM or DRAW; null before kickoff |
 | duration | varchar | REGULAR, EXTRA_TIME or PENALTY_SHOOTOUT |
-| home_score_ft | integer | null until played |
-| away_score_ft | integer | null until played |
-| home_score_ht | integer | null until played |
-| away_score_ht | integer | null until played |
+| home_score_ft | integer | null before kickoff; the live score during play |
+| away_score_ft | integer | null before kickoff; the live score during play |
+| home_score_ht | integer | null before kickoff; the live score during play |
+| away_score_ht | integer | null before kickoff; the live score during play |
 | _source_file | varchar | |
 | _loaded_at | timestamp | |
 | status | varchar | normalised: a kickoff timestamp becomes SCHEDULED |
@@ -163,7 +163,7 @@ No model reads `stg_standings`; `assert_standings_reconcile_with_endpoint` does.
 | Column | Type | Notes |
 |--------|------|-------|
 | has_result | boolean | status is FINISHED or AWARDED |
-| total_goals_ft | integer | null until played |
+| total_goals_ft | integer | null before kickoff |
 | home_points | integer | 3/1/0 from `winner` |
 | away_points | integer | 3/1/0 from `winner` |
 | _loaded_at | timestamp | |
@@ -235,13 +235,13 @@ No model reads `stg_standings`; `assert_standings_reconcile_with_endpoint` does.
 | kickoff_utc | timestamp | |
 | winner | varchar | |
 | duration | varchar | |
-| home_score_ft | integer | null until played |
-| away_score_ft | integer | null until played |
-| home_score_ht | integer | null until played |
-| away_score_ht | integer | null until played |
-| total_goals_ft | integer | null until played |
-| home_points | integer | null until played |
-| away_points | integer | null until played |
+| home_score_ft | integer | null before kickoff; the live score during play |
+| away_score_ft | integer | null before kickoff; the live score during play |
+| home_score_ht | integer | null before kickoff; the live score during play |
+| away_score_ht | integer | null before kickoff; the live score during play |
+| total_goals_ft | integer | null before kickoff |
+| home_points | integer | 3/1/0 from `winner`; null while `winner` is null |
+| away_points | integer | 3/1/0 from `winner`; null while `winner` is null |
 | has_result | boolean | FINISHED or AWARDED |
 | _loaded_at | timestamp | when raw last saw this match's payload change |
 
@@ -261,11 +261,11 @@ No model reads `stg_standings`; `assert_standings_reconcile_with_endpoint` does.
 | status | varchar | |
 | is_home | boolean | |
 | has_result | boolean | |
-| goals_for | integer | null until played |
-| goals_against | integer | null until played |
-| goal_difference | integer | null until played |
-| points | integer | 3/1/0 from `winner`; null until played |
-| result | varchar | W, D or L from the scores; null until played |
+| goals_for | integer | null before kickoff; the live score during play |
+| goals_against | integer | null before kickoff; the live score during play |
+| goal_difference | integer | null before kickoff |
+| points | integer | 3/1/0 from `winner`; null until `has_result` |
+| result | varchar | W, D or L from the scores; null until `has_result` |
 | _loaded_at | timestamp | |
 
 ### marts.fact_standings: grain (competition_code, season_id, team_id, matchday)
