@@ -12,18 +12,20 @@
 <circle cx="1036" cy="282.0" r="2.6" fill="#b6bec9"/>
 <path d="M 962 144.0 C 999.0 144.0, 999.0 236.0, 1036 236.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
 <circle cx="1036" cy="236.0" r="2.6" fill="#b6bec9"/>
-<path d="M 1269 328.0 C 1306.0 328.0, 1306.0 213.0, 1343 213.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
-<circle cx="1343" cy="213.0" r="2.6" fill="#b6bec9"/>
-<path d="M 1269 328.0 C 1306.0 328.0, 1306.0 167.0, 1343 167.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
-<circle cx="1343" cy="167.0" r="2.6" fill="#b6bec9"/>
-<path d="M 1269 328.0 C 1306.0 328.0, 1306.0 259.0, 1343 259.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
-<circle cx="1343" cy="259.0" r="2.6" fill="#b6bec9"/>
+<path d="M 1269 328.0 C 1306.0 328.0, 1306.0 190.0, 1343 190.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="1343" cy="190.0" r="2.6" fill="#b6bec9"/>
+<path d="M 1269 328.0 C 1306.0 328.0, 1306.0 236.0, 1343 236.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="1343" cy="236.0" r="2.6" fill="#b6bec9"/>
+<path d="M 1269 328.0 C 1306.0 328.0, 1306.0 144.0, 1343 144.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="1343" cy="144.0" r="2.6" fill="#b6bec9"/>
+<path d="M 1269 328.0 C 1306.0 328.0, 1306.0 282.0, 1343 282.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="1343" cy="282.0" r="2.6" fill="#b6bec9"/>
 <path d="M 962 190.0 C 999.0 190.0, 999.0 328.0, 1036 328.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
 <circle cx="1036" cy="328.0" r="2.6" fill="#b6bec9"/>
 <path d="M 962 190.0 C 999.0 190.0, 999.0 282.0, 1036 282.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
 <circle cx="1036" cy="282.0" r="2.6" fill="#b6bec9"/>
-<path d="M 962 190.0 C 1152.5 190.0, 1152.5 167.0, 1343 167.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
-<circle cx="1343" cy="167.0" r="2.6" fill="#b6bec9"/>
+<path d="M 962 190.0 C 1152.5 190.0, 1152.5 144.0, 1343 144.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="1343" cy="144.0" r="2.6" fill="#b6bec9"/>
 <path d="M 738 144.0 C 775.0 144.0, 775.0 144.0, 812 144.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
 <circle cx="812" cy="144.0" r="2.6" fill="#b6bec9"/>
 <path d="M 738 144.0 C 775.0 144.0, 775.0 190.0, 812 190.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
@@ -40,8 +42,8 @@
 <circle cx="478" cy="190.0" r="2.6" fill="#b6bec9"/>
 <path d="M 404 190.0 C 441.0 190.0, 441.0 236.0, 478 236.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
 <circle cx="478" cy="236.0" r="2.6" fill="#b6bec9"/>
-<path d="M 404 236.0 C 873.5 236.0, 873.5 167.0, 1343 167.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
-<circle cx="1343" cy="167.0" r="2.6" fill="#b6bec9"/>
+<path d="M 404 236.0 C 873.5 236.0, 873.5 144.0, 1343 144.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
+<circle cx="1343" cy="144.0" r="2.6" fill="#b6bec9"/>
 <path d="M 404 282.0 C 441.0 282.0, 441.0 282.0, 478 282.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
 <circle cx="478" cy="282.0" r="2.6" fill="#b6bec9"/>
 <path d="M 180 121.0 C 217.0 121.0, 217.0 144.0, 254 144.0" fill="none" stroke="#b6bec9" stroke-width="1.3"/>
@@ -73,7 +75,7 @@
 <rect x="1036" y="313.0" width="233" height="30" rx="6" ry="6" fill="#1f4e79"/>
 <text x="1152.5" y="332.5" text-anchor="middle" fill="#ffffff" font-weight="600">fact_standings</text>
 <rect x="812" y="175.0" width="150" height="30" rx="6" ry="6" fill="#1f4e79"/>
-<text x="887.0" y="194.5" text-anchor="middle" fill="#ffffff" font-weight="600">fct_team_matches</text>
+<text x="887.0" y="194.5" text-anchor="middle" fill="#ffffff" font-weight="600">fact_team_matches</text>
 <rect x="478" y="129.0" width="260" height="30" rx="6" ry="6" fill="#2f6f4f"/>
 <text x="608.0" y="148.5" text-anchor="middle" fill="#ffffff" font-weight="600">int_matches</text>
 <rect x="478" y="175.0" width="260" height="30" rx="6" ry="6" fill="#2f6f4f"/>
@@ -96,12 +98,14 @@
 <text x="608.0" y="240.5" text-anchor="middle" fill="#ffffff" font-weight="600">assert_season_attributes_consistent</text>
 <rect x="1036" y="267.0" width="233" height="30" rx="6" ry="6" fill="#b45309"/>
 <text x="1152.5" y="286.5" text-anchor="middle" fill="#ffffff" font-weight="600">assert_season_fixtures_complete</text>
-<rect x="1343" y="198.0" width="294" height="30" rx="6" ry="6" fill="#b45309"/>
-<text x="1490.0" y="217.5" text-anchor="middle" fill="#ffffff" font-weight="600">assert_standings_points_consistent</text>
-<rect x="1343" y="152.0" width="294" height="30" rx="6" ry="6" fill="#b45309"/>
-<text x="1490.0" y="171.5" text-anchor="middle" fill="#ffffff" font-weight="600">assert_standings_reconcile_with_endpoint</text>
-<rect x="1343" y="244.0" width="294" height="30" rx="6" ry="6" fill="#b45309"/>
-<text x="1490.0" y="263.5" text-anchor="middle" fill="#ffffff" font-weight="600">assert_standings_snapshots_move_forward</text>
+<rect x="1343" y="175.0" width="294" height="30" rx="6" ry="6" fill="#b45309"/>
+<text x="1490.0" y="194.5" text-anchor="middle" fill="#ffffff" font-weight="600">assert_standings_matchdays_contiguous</text>
+<rect x="1343" y="221.0" width="294" height="30" rx="6" ry="6" fill="#b45309"/>
+<text x="1490.0" y="240.5" text-anchor="middle" fill="#ffffff" font-weight="600">assert_standings_points_consistent</text>
+<rect x="1343" y="129.0" width="294" height="30" rx="6" ry="6" fill="#b45309"/>
+<text x="1490.0" y="148.5" text-anchor="middle" fill="#ffffff" font-weight="600">assert_standings_reconcile_with_endpoint</text>
+<rect x="1343" y="267.0" width="294" height="30" rx="6" ry="6" fill="#b45309"/>
+<text x="1490.0" y="286.5" text-anchor="middle" fill="#ffffff" font-weight="600">assert_standings_snapshots_move_forward</text>
 <rect x="1036" y="221.0" width="233" height="30" rx="6" ry="6" fill="#b45309"/>
 <text x="1152.5" y="240.5" text-anchor="middle" fill="#ffffff" font-weight="600">assert_winner_matches_score</text>
 <rect x="30" y="373" width="11" height="11" rx="2" fill="#4b5563"/>

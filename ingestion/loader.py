@@ -92,6 +92,17 @@ _DDL: list[str] = [
 ]
 
 
+# Fields the API rewrites on every response even when nothing real changed:
+# every match carries the season's current matchday and a last-updated time.
+# They're removed (JSON merge patch, null deletes a key) before comparing a
+# payload with the stored one, so a new round doesn't count every match of the
+# season as changed. The stored payload is still the full, untouched object.
+VOLATILE_FIELDS: dict[str, str] = {
+    "matches": '{"lastUpdated": null, "season": {"currentMatchday": null}}',
+    "teams": '{"lastUpdated": null}',
+}
+
+
 def utc_now() -> datetime:
     """Naive UTC timestamp, which is what the TIMESTAMP columns hold."""
     return datetime.now(UTC).replace(tzinfo=None)
@@ -183,10 +194,18 @@ class RawLoader:
         pk_cols = ", ".join(pk)
         join = " AND ".join(f"t.{c} = i.{c}" for c in pk)
         updates = ", ".join(f"{c} = excluded.{c}" for c in columns if c not in pk)
-        # Every column except the audit ones decides whether a row changed.
+        # Every column except the audit ones decides whether a row changed; the
+        # payload is compared without its volatile fields.
         compared = [c for c in columns if c not in pk and c not in ("_source_file", "_loaded_at")]
+        patch = VOLATILE_FIELDS.get(table)
+
+        def comparable(side: str, col: str) -> str:
+            if col == "payload" and patch:
+                return f"json_merge_patch({side}.payload, '{patch}')::VARCHAR"
+            return f"{side}.{col}::VARCHAR"
+
         same = " AND ".join(
-            f"t.{c}::VARCHAR IS NOT DISTINCT FROM i.{c}::VARCHAR" for c in compared
+            f"{comparable('t', c)} IS NOT DISTINCT FROM {comparable('i', c)}" for c in compared
         )
 
         # All rows go in as ONE JSON string and are unpacked in SQL; the insert

@@ -92,10 +92,16 @@ Column-level detail is in [data-dictionary.md](data-dictionary.md).
 ### Change-only upsert
 
 Loads upsert on the primary key with `INSERT ... ON CONFLICT DO UPDATE`, so
-reloading never duplicates a row. Before the upsert, incoming rows whose payload
-is identical to the stored one are dropped. A row is therefore rewritten only
-when its content changed, and `_loaded_at` means "when this content last
-changed". `fact_standings` uses that as its incremental watermark.
+reloading never duplicates a row. Before the upsert, incoming rows that match
+the stored one are dropped. A row is therefore rewritten only when its content
+changed, and `_loaded_at` means "when this content last changed".
+`fact_standings` uses that as its incremental watermark.
+
+Two fields don't count as content. The API rewrites `lastUpdated` on every
+object and puts the season's `currentMatchday` in every match, so a new round
+would otherwise mark every match of the season as changed. The comparison
+removes both (`loader.VOLATILE_FIELDS`, applied with `json_merge_patch`); the
+stored payload keeps them.
 
 `_loaded_at` is naive UTC: the run's start time, identical for every row a run
 writes.

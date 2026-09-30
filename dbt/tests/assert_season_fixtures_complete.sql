@@ -21,7 +21,7 @@ per_team as (
     select competition_code, season_id, team_id,
            count(*) filter (where is_home)     as home_games,
            count(*) filter (where not is_home) as away_games
-    from {{ ref('fct_team_matches') }}
+    from {{ ref('fact_team_matches') }}
     where stage = 'REGULAR_SEASON'
     group by competition_code, season_id, team_id
 ),

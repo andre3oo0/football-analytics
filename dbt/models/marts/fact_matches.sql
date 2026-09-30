@@ -1,7 +1,7 @@
 -- One row per match across every competition. match_id is a degenerate
 -- dimension: a key with no dimension table of its own. Scores and measures
 -- are null until a match is played. For per-team questions use
--- fct_team_matches instead, which has one row per side.
+-- fact_team_matches instead, which has one row per side.
 
 select
     match_id,

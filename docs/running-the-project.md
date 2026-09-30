@@ -24,16 +24,16 @@ cp .env.example .env                   # then set FOOTBALL_DATA_API_KEY
 
 ## Build without an API key
 
-`tests/fixtures/raw` holds one real season, Premier League 2024/25 (teams,
+`tests/fixtures/raw` holds one real season, Bundesliga 2024/25 (teams,
 matches and standings):
 
 ```bash
-python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions PL
+python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions BL1
 cd dbt && dbt build --profiles-dir .
 ```
 
 This is what CI runs. If a key is set in `.env`, cache-first mode still fetches
-any response that isn't cached, so keep to `--competitions PL --season 2024`
+any response that isn't cached, so keep to `--competitions BL1 --season 2024`
 with the fixtures.
 
 ## Build with live data
@@ -113,7 +113,7 @@ python -c "import duckdb; duckdb.connect('data/football.duckdb', read_only=True)
 
 | Symptom | Cause and fix |
 |---------|---------------|
-| `No cached response ... and no API key set` | The response isn't cached and there is no key. Set `FOOTBALL_DATA_API_KEY`, or use `--cache-dir tests/fixtures/raw --season 2024 --competitions PL`. |
+| `No cached response ... and no API key set` | The response isn't cached and there is no key. Set `FOOTBALL_DATA_API_KEY`, or use `--cache-dir tests/fixtures/raw --season 2024 --competitions BL1`. |
 | Ingestion exits 1 | An endpoint failed and the run rolled back. The log and `raw._load_runs.failures` say which. Re-run; successful responses are cached. |
 | `InvalidResponse` | The API returned 200 with an unexpected body. Nothing was cached. Re-run with `--refresh` later; if it persists, the API changed shape. |
 | A lock error or a step that hangs | Another process holds the DuckDB file (another run, DBeaver). Close it. |

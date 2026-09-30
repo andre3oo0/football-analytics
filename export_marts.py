@@ -26,7 +26,7 @@ SCHEMA = "marts"
 
 TABLES = [
     "fact_matches",
-    "fct_team_matches",
+    "fact_team_matches",
     "fact_standings",
     "dim_teams",
     "dim_competitions",

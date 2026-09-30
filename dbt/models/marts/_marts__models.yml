@@ -213,7 +213,7 @@ models:
         data_type: timestamp
         description: "UTC time raw last saw this match's payload change. Audit only; no date relationship."
 
-  - name: fct_team_matches
+  - name: fact_team_matches
     description: >
       One row per team per match (two per match), home and away unpivoted.
       The analyst-friendly grain for team questions; unplayed fixtures are

@@ -14,7 +14,7 @@ python export_marts.py --out exports/ --db path/to/football.duckdb
 The script opens the warehouse read-only and writes one Parquet file per mart
 to `exports/<table>.parquet` with DuckDB's `COPY ... (FORMAT PARQUET)`,
 printing each table's row count. It exports the seven marts only: `fact_matches`,
-`fct_team_matches`, `fact_standings`, `dim_teams`, `dim_competitions`,
+`fact_team_matches`, `fact_standings`, `dim_teams`, `dim_competitions`,
 `dim_seasons` and `dim_date`.
 
 | Flag | Default |
@@ -40,20 +40,20 @@ direction (dimension to fact).
 | `fact_matches.home_team_id` | `dim_teams.team_id` | yes |
 | `fact_matches.away_team_id` | `dim_teams.team_id` | no |
 | `fact_matches.kickoff_date` | `dim_date.date_day` | yes |
-| `fct_team_matches.competition_code` | `dim_competitions.competition_code` | yes |
-| `fct_team_matches.season_id` | `dim_seasons.season_id` | yes |
-| `fct_team_matches.team_id` | `dim_teams.team_id` | yes |
-| `fct_team_matches.kickoff_date` | `dim_date.date_day` | yes |
+| `fact_team_matches.competition_code` | `dim_competitions.competition_code` | yes |
+| `fact_team_matches.season_id` | `dim_seasons.season_id` | yes |
+| `fact_team_matches.team_id` | `dim_teams.team_id` | yes |
+| `fact_team_matches.kickoff_date` | `dim_date.date_day` | yes |
 | `fact_standings.competition_code` | `dim_competitions.competition_code` | yes |
 | `fact_standings.season_id` | `dim_seasons.season_id` | yes |
 | `fact_standings.team_id` | `dim_teams.team_id` | yes |
 | `fact_standings.as_of_date` | `dim_date.date_day` | yes |
 | `dim_seasons.competition_code` | `dim_competitions.competition_code` | no |
 
-Leave out a relationship between `fct_team_matches.match_id` and
+Leave out a relationship between `fact_team_matches.match_id` and
 `fact_matches.match_id`. The dbt test uses it to check integrity, but in the BI
 model it would give `dim_date` and the other dimensions a second path into
-`fct_team_matches` through `fact_matches`, which is ambiguous. The two facts
+`fact_team_matches` through `fact_matches`, which is ambiguous. The two facts
 share dimensions, and that is enough to show them side by side.
 
 ### Competition has two paths
@@ -70,14 +70,14 @@ Mark `dim_date` as the date table on `date_day` and turn off auto date/time for
 the file, or Power BI adds a hidden date table per date column.
 
 Each fact has one active relationship to `dim_date`: `kickoff_date` for
-`fact_matches` and `fct_team_matches`, and `as_of_date` for `fact_standings`.
+`fact_matches` and `fact_team_matches`, and `as_of_date` for `fact_standings`.
 Filtering standings by date then means "the table as it stood on that date".
 `kickoff_date` is the UTC date. The `_loaded_at` columns are pipeline audit
 fields and get no date relationship.
 
 ### Team measures
 
-Use `fct_team_matches` for anything about a team: goals scored and conceded,
+Use `fact_team_matches` for anything about a team: goals scored and conceded,
 points, form, home and away splits (`is_home`). It has one team column and one
 active relationship to `dim_teams`. The same measures on `fact_matches` need the
 home and away columns combined, with `USERELATIONSHIP` on the inactive
