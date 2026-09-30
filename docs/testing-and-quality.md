@@ -109,14 +109,13 @@ Neither workflow runs this; it is a manual check.
 ## What isn't tested
 
 - The live API itself. pytest uses a fake session and CI uses fixtures, so an
-  API change surfaces first in the scheduled pipeline, through validation or
+  API change surfaces first in the nightly pipeline, through validation or
   the data tests.
 - Only one season of fixtures runs in CI. The other leagues and seasons are
-  tested by the scheduled pipeline's `dbt build`.
+  tested by the nightly pipeline's `dbt build`.
 - `dim_date` and `dim_teams` attributes beyond their keys.
 - Head-to-head ordering and points deductions, which aren't modelled.
 - `export_marts.py` and `docs/generate_diagrams.py` have no unit tests. The
   pipeline runs the export daily and CI runs the diagram script.
-- The incremental build is exercised in CI but only checked by the same data
-  tests as a full build; equality with a full refresh after a changed match was
-  checked by hand.
+- No test compares an incremental build with a full refresh. CI's second
+  build runs the incremental branch, and the same data tests check its output.

@@ -71,7 +71,7 @@ error.
 | `data/raw/*.json` | every validated API response, one file per competition, endpoint and season |
 | `data/football.duckdb` | raw tables, the run log, and everything dbt builds |
 | `tests/fixtures/raw/` | one committed season for running without an API key |
-| GitHub Actions cache | the scheduled pipeline's copy of the two above, carried between runs |
+| GitHub Actions cache | the nightly pipeline's copy of the two above, carried between runs |
 
 Locally, the JSON cache is the durable part: delete the DuckDB file and a
 cache-first ingest rebuilds raw without any API calls. In GitHub Actions both
