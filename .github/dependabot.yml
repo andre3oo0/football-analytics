@@ -1,10 +1,20 @@
 version: 2
 updates:
+  # One pull request a month per ecosystem, with every update in it.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+  # Dependabot edits the ranges in requirements*.txt but not the lock files.
+  # CI's "Lock files match requirements" check fails on its pull request until
+  # the locks are regenerated on the branch (see docs/running-the-project.md).
   - package-ecosystem: pip
     directory: /
     schedule:
       interval: monthly
+    groups:
+      python:
+        patterns: ["*"]
