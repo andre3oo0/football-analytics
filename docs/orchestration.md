@@ -5,7 +5,7 @@ Two GitHub Actions workflows in `.github/workflows/`.
 | Workflow | Runs on | Needs the API key | Purpose |
 |----------|---------|-------------------|---------|
 | `ci.yml` | every pull request and push to `main` | no | lint, tests, a full dbt build on the fixture season |
-| `pipeline.yml` | 22:00 UTC daily (00:00 SAST) and manual dispatch | yes | the real pipeline on live data |
+| `pipeline.yml` | 00:00 UTC daily (02:00 SAST) and manual dispatch | yes | the real pipeline on live data |
 
 Both run on `ubuntu-latest` with Python 3.11 and have read-only repository
 permissions.
@@ -60,16 +60,16 @@ cache. The next run starts from that one.
 
 ### Schedule
 
-The cron entry is `0 22 * * *`: 22:00 UTC, which is 00:00 SAST all year
+The cron entry is `0 0 * * *`: 00:00 UTC, which is 02:00 SAST all year
 (South Africa is UTC+2 with no daylight saving). GitHub often starts scheduled
 runs a few minutes late.
 
-Most European evening games have finished by 22:00 UTC, but a winter 21:00 CET
-kickoff (20:00 UTC) with stoppage time or a delay can still be in play. A live
-match loads as IN_PLAY or PAUSED, so `has_result` is false and it doesn't count
-toward `fact_standings`. If the standings endpoint already counts it, the
-reconciliation test fails, the job goes red and the cache isn't updated. The
-next night's run picks up the final result and passes again.
+The time is chosen so no match is in play. The latest European kickoffs are
+around 21:00 CET (20:00 UTC in winter) and finish about two hours later. A run
+during a live game would load it as IN_PLAY, and the reconciliation test could
+fail if the standings endpoint already counted it. If a run does fail, the
+cache isn't updated, so no state is lost, and the next run picks up the final
+result.
 
 ### Cache eviction
 

@@ -12,10 +12,9 @@ name: football-data-pipeline
 
 on:
   schedule:
-    # 22:00 UTC = 00:00 SAST (UTC+2, no daylight saving). GitHub often starts
-    # scheduled runs a few minutes late. Late European kickoffs can still be
-    # in play at this time; see docs/orchestration.md.
-    - cron: "0 22 * * *"
+    # 00:00 UTC = 02:00 SAST (UTC+2, no daylight saving), after the last
+    # European evening games have finished.
+    - cron: "0 0 * * *"
   workflow_dispatch: {}
 
 # One run at a time; the DuckDB file is single-writer.
