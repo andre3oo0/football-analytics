@@ -14,7 +14,7 @@ file and the committed fixture season.
 |------|--------|
 | `test_api_client.py` | 200s cached, cache hits make no request, no key and no cache fails, 429 with and without `Retry-After`, 5xx then 200, connection errors and timeouts retried, retries bounded, 404 raises `ResourceNotFound`, other 4xx not retried, an invalid body is rejected and not cached, an invalid cached file is rejected |
 | `test_validation.py` | the real fixtures pass; a matches body that is missing, null, empty, miscounted or has a match without an id fails; so do a miscounted teams body and standings without `season.id` |
-| `test_loader.py` | first load inserts everything; a reload is idempotent and keeps `_loaded_at`; a changed payload is rewritten and restamped; a match missing from the response is deleted; standings explode to one row per team per type; rows without a key are skipped; rollback discards the run |
+| `test_loader.py` | a load that would delete more than the limit of matches is refused; first load inserts everything; a reload is idempotent and keeps `_loaded_at`; a changed payload is rewritten and restamped; a match missing from the response is deleted; standings explode to one row per team per type; rows without a key are skipped; rollback discards the run |
 | `test_run.py` | a run over the fixtures loads and writes `raw._load_runs`, and a second run changes nothing; one bad file rolls back every endpoint; an unknown competition exits 2 |
 
 ```bash
@@ -69,6 +69,7 @@ SQL in `dbt/tests/`; each returns offending rows and fails if there are any.
 | `assert_standings_points_consistent` | `points <> 3 * won + drawn` at any snapshot. Points come from `winner` and W/D from the scores, so this compares two fields; it would also catch a points deduction |
 | `assert_standings_snapshots_move_forward` | an `as_of_date` or a team's `played` going backwards as the matchday rises |
 | `assert_standings_reconcile_with_endpoint` | the derived table disagreeing with the standings endpoint |
+| `assert_goals_plausible` | a match with more than 12 goals, or a season of 100+ results averaging outside 1.8 to 4.0 goals a match (full seasons in the data average 2.4 to 3.3), which points at a scrambled score feed |
 
 ### The reconciliation test
 
@@ -105,7 +106,9 @@ would warn during an international break.
 cd dbt && dbt source freshness --profiles-dir .
 ```
 
-Neither workflow runs this; it is a manual check.
+The nightly pipeline runs it on the restored warehouse before ingesting, so it
+measures the previous night's run. A stale result raises a warning on the run
+and is written to the job summary; it doesn't fail the run.
 
 ## What isn't tested
 

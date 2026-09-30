@@ -75,10 +75,11 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.11"
+          python-version-file: .python-version
           cache: pip
+          cache-dependency-path: requirements*.lock
 
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.lock
 
       - name: Restore warehouse from the last successful run
         id: restore
@@ -96,6 +97,23 @@ jobs:
           python -m ingestion.run --season 2024
           python -m ingestion.run --season 2025
 
+      # How old is the warehouse we just restored? A nightly run restores the
+      # previous night's state, so anything older than a day means a night was
+      # missed. This doesn't fail the run (running is the fix); it raises a
+      # warning on the run and records the age in the job summary.
+      - name: Check the restored warehouse isn't stale
+        if: hashFiles('data/football.duckdb') != ''
+        working-directory: dbt
+        run: |
+          dbt source freshness --profiles-dir . --select "source:raw._load_runs" || true
+          state=$(jq -r '.results[0].status' target/sources.json)
+          age=$(jq -r '.results[0].max_loaded_at_time_ago_in_s | floor' target/sources.json)
+          hours=$((age / 3600))
+          echo "Previous successful ingestion: ${hours} h before this run (freshness: ${state})." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$state" != "pass" ]; then
+            echo "::warning title=Stale warehouse::The previous successful ingestion was ${hours} hours ago (${state}). At least one nightly run was missed."
+          fi
+
       - name: Ingest the live season
         run: python -m ingestion.run --refresh
 
@@ -103,9 +121,17 @@ jobs:
         working-directory: dbt
         run: dbt build --profiles-dir .
 
-      - name: dbt docs
+      - name: dbt docs (single-page site)
         working-directory: dbt
-        run: dbt docs generate --profiles-dir .
+        run: |
+          dbt docs generate --profiles-dir . --static
+          mkdir -p ../_site
+          cp target/static_index.html ../_site/index.html
+
+      - name: Stage the docs for GitHub Pages
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
+        with:
+          path: _site
 
       - name: Export marts to Parquet
         run: python export_marts.py --out exports
@@ -143,3 +169,17 @@ jobs:
             dbt/target/catalog.json
             dbt/target/run_results.json
           if-no-files-found: ignore
+
+  # Publishes the dbt docs built from tonight's warehouse to GitHub Pages.
+  publish-docs:
+    needs: run-pipeline
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346  # v5.0.1

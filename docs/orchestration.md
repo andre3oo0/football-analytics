@@ -7,20 +7,22 @@ Two GitHub Actions workflows in `.github/workflows/`.
 | `ci.yml` | every pull request and push to `main` | no | lint, tests, a full dbt build on the fixture season |
 | `pipeline.yml` | 02:00 SAST nightly via an external trigger, a fallback schedule, and manual dispatch | yes | the real pipeline on live data |
 
-Both run on `ubuntu-latest` with Python 3.11 and have read-only repository
-permissions.
+Both run on `ubuntu-latest` with the Python version in `.python-version`
+(3.11) and install the exact versions in `requirements.lock` /
+`requirements-dev.lock`. Both have read-only repository permissions; the one
+exception is the Pages deploy job below.
 
 ## ci.yml
 
 Two jobs, run in parallel. A newer push to the same branch cancels a running
 CI job.
 
-**python**: `pip install -r requirements-dev.txt`, then `ruff check .` and
+**python**: `pip install -r requirements-dev.lock`, then `ruff check .` and
 `pytest`.
 
 **dbt**:
 
-1. `pip install -r requirements.txt`.
+1. `pip install -r requirements.lock`.
 2. Load the fixture season with no API calls:
    `python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions PL`.
 3. `dbt build --profiles-dir .`: seed, models, unit tests and data tests.
@@ -41,23 +43,34 @@ ahead. It needs `actions: read` to list runs; nothing else has more than
 
 Then `run-pipeline`, steps in order:
 
-1. Check out, set up Python, `pip install -r requirements.txt`.
+1. Check out, set up Python, `pip install -r requirements.lock`.
 2. **Restore the warehouse.** `actions/cache/restore` restores
    `data/football.duckdb` and `data/raw/*.json` from the newest cache entry
    whose key starts with `warehouse-`.
 3. **Bootstrap, only if nothing was restored.** If there is no
    `data/football.duckdb`, ingest the completed seasons:
    `python -m ingestion.run --season 2024` and `--season 2025`.
-4. **Ingest the live season**: `python -m ingestion.run --refresh`.
-5. `dbt build --profiles-dir .`.
-6. `dbt docs generate --profiles-dir .`.
-7. `python export_marts.py --out exports`.
-8. Print the last five rows of `raw._load_runs`.
-9. **Save the warehouse** to the cache under `warehouse-<run_id>`.
-10. Upload `exports/*.parquet` as the `marts-parquet` artifact (kept 14 days)
+4. **Check the restored warehouse isn't stale** (only when one was restored).
+   `dbt source freshness` on `raw._load_runs` reports how long ago the previous
+   successful ingestion finished. The age goes in the job summary, and a
+   warning is raised on the run when it is over 26 hours, which means a night
+   was missed. The step never fails the run, because running is what fixes it.
+5. **Ingest the live season**: `python -m ingestion.run --refresh`.
+6. `dbt build --profiles-dir .`.
+7. `dbt docs generate --profiles-dir . --static`, copied to `_site/index.html`
+   and staged for GitHub Pages.
+8. `python export_marts.py --out exports`.
+9. Print the last five rows of `raw._load_runs`.
+10. **Save the warehouse** to the cache under `warehouse-<run_id>`.
+11. Upload `exports/*.parquet` as the `marts-parquet` artifact (kept 14 days)
     and the dbt docs (`index.html`, `manifest.json`, `catalog.json`,
     `run_results.json`) as `dbt-docs`. The docs are uploaded even when an
     earlier step failed.
+
+Then `publish-docs` deploys the staged site to GitHub Pages, at
+https://andre3oo0.github.io/football-analytics/. It runs only after `run-pipeline` succeeds and is
+the only job with write access (`pages: write`, `id-token: write`), which the
+Pages deploy needs.
 
 Any failing step stops the job: an ingestion failure (exit 1), a failing dbt
 test, a contract violation. The save step is only reached when everything before

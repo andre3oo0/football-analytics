@@ -10,7 +10,7 @@ Python 3.11 or newer.
 ```bash
 python -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
-pip install -r requirements-dev.txt  # runtime deps plus pytest and ruff
+pip install -r requirements-dev.lock # exact versions CI uses, plus pytest and ruff
 ```
 
 You don't need an API key to build. The committed fixture season is enough:
@@ -45,9 +45,11 @@ Once a key is set, cache-first mode fetches any response that isn't cached yet.
    cd dbt && dbt build --profiles-dir .
    ```
 
-3. A new or changed model gets a description, tests, and (for a mart) contract
+3. A dependency change edits the range in `requirements*.txt` and regenerates
+   the lock files (see [running-the-project.md](docs/running-the-project.md)).
+4. A new or changed model gets a description, tests, and (for a mart) contract
    columns with `data_type` in the neighbouring `_*.yml`.
-4. If you changed the DAG or a foreign key, regenerate the diagrams and commit
+5. If you changed the DAG or a foreign key, regenerate the diagrams and commit
    the SVGs. CI fails if they are out of date.
 
    ```bash
@@ -57,7 +59,7 @@ Once a key is set, cache-first mode fetches any response that isn't cached yet.
 
    The ER diagram's layout is curated in the script, and the script exits
    non-zero if the foreign keys it draws differ from the `relationships` tests.
-5. Open a pull request saying what changed and why.
+6. Open a pull request saying what changed and why.
 
 ## Conventions
 

@@ -5,7 +5,8 @@ from datetime import datetime
 
 import pytest
 
-from ingestion.loader import RawLoader
+from ingestion.config import MAX_MATCH_DELETES_PER_LOAD
+from ingestion.loader import LoadAnomaly, RawLoader
 
 T1 = datetime(2026, 9, 1, 6, 0)
 T2 = datetime(2026, 9, 2, 6, 0)
@@ -63,6 +64,18 @@ def test_match_missing_from_response_is_deleted(db, fixture_json):
     result, rows = load_matches(db, trimmed, T2)
     assert result.deleted == 1
     assert removed not in rows and len(rows) == 379
+
+
+def test_mass_delete_is_refused(db, fixture_json):
+    response = fixture_json("PL_matches_2024.json")
+    load_matches(db, response, T1)
+    trimmed = copy.deepcopy(response)
+    del trimmed["matches"][: MAX_MATCH_DELETES_PER_LOAD + 1]
+
+    with pytest.raises(LoadAnomaly, match="would delete"):
+        load_matches(db, trimmed, T2)
+    with RawLoader(db) as loader:
+        assert loader.row_counts()["matches"] == 380  # nothing was deleted
 
 
 def test_standings_explode_to_one_row_per_team_per_type(db, fixture_json):

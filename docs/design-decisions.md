@@ -50,6 +50,13 @@ missing id) would otherwise load zero rows, report success, and then be served
 from the cache on every later run. Validating before the write, writing
 atomically, and validating again on read means a bad file is never trusted.
 
+### Large deletes are refused
+
+A matches response that would remove more than five stored matches of a season
+is treated as a bad response. The run fails and raw keeps its data. Genuine
+removals of that size don't happen in a league season, while a truncated or
+filtered response from the API would otherwise wipe matches silently.
+
 ### Every run is logged in raw._load_runs
 
 The log holds status, counts and failures per run. It is what source freshness
@@ -190,6 +197,15 @@ overwrite good state, and the completed seasons aren't re-fetched every day.
 The Actions cache is the simplest store that needs no infrastructure. Its cost
 is eviction, covered below.
 
+### Exact versions everywhere
+
+`requirements.txt` and `requirements-dev.txt` hold the ranges a person edits.
+`requirements.lock` and `requirements-dev.lock` pin every package, including
+dbt's dependencies, resolved with `uv pip compile --universal` for Python 3.11
+on any platform. CI and the pipeline install the lock files and read the
+Python version from `.python-version`, so a dependency release can't change a
+nightly build without a commit.
+
 ### Single writer
 
 DuckDB allows one writer. Steps run as separate sequential processes, the
@@ -228,7 +244,9 @@ pipeline runs overlapping.
 - **Reconciliation assumes one run.** The test compares matches and standings
   as if they came from the same ingestion run. Loading one endpoint without the
   other can make it fail for timing reasons.
-- **Source freshness is not run automatically.** Neither workflow runs
-  `dbt source freshness`; it is a manual check.
+- **Staleness is a warning.** The nightly run checks how old the restored
+  warehouse is and warns when a night was missed, but GitHub doesn't email
+  about warnings. A run that doesn't happen at all is only noticed through
+  cron-job.org's failure email or the next run's warning.
 - **No BI model in the repo.** A Power BI model was started over the marts and
   is paused. [exports.md](exports.md) records its relationship design.

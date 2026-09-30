@@ -87,4 +87,6 @@ run succeeds; see [orchestration.md](orchestration.md).
 - GitHub Actions for CI and the nightly pipeline, started by an external cron
   service with GitHub's schedule as a fallback.
 
-Version ranges are in `requirements.txt` and `requirements-dev.txt`.
+Version ranges are in `requirements.txt` and `requirements-dev.txt`; the exact
+versions CI and the pipeline install are in `requirements.lock` and
+`requirements-dev.lock`, for the Python version in `.python-version`.
