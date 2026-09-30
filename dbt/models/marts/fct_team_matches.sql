@@ -48,9 +48,9 @@ select
     goals_for,
     goals_against,
     goals_for - goals_against                        as goal_difference,
-    -- A live match can already have a score and a provisional winner; it only
-    -- gets points and a result once it has a definitive outcome.
-    case when has_result then points end             as points,
+    points,                                          -- null until has_result (int_matches)
+    -- A live match already has a score; it only gets a result once it has a
+    -- definitive outcome.
     case
         when not has_result then null
         when goals_for > goals_against then 'W'

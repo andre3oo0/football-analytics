@@ -201,8 +201,10 @@ models:
         description: "Full-time home + away goals; null until played."
       - name: home_points
         data_type: integer
+        description: "3/1/0 from the API's winner field; null until the match has a result."
       - name: away_points
         data_type: integer
+        description: "3/1/0 from the API's winner field; null until the match has a result."
       - name: has_result
         data_type: boolean
         description: "True for FINISHED/AWARDED matches (a definitive outcome)."

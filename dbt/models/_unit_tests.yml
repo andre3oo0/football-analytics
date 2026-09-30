@@ -79,6 +79,8 @@ unit_tests:
           2,AWARDED,AWAY_TEAM,0,2
           3,POSTPONED,,,
           4,SCHEDULED,,,
+          5,IN_PLAY,HOME_TEAM,1,0
+          6,SUSPENDED,DRAW,1,1
     expect:
       format: csv
       rows: |
@@ -87,6 +89,8 @@ unit_tests:
         2,true,0,3,2
         3,false,,,
         4,false,,,
+        5,false,,,1
+        6,false,,,2
 
   - name: stg_matches_normalises_timestamp_status
     model: stg_matches

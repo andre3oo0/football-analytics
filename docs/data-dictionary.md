@@ -164,8 +164,8 @@ No model reads `stg_standings`; `assert_standings_reconcile_with_endpoint` does.
 |--------|------|-------|
 | has_result | boolean | status is FINISHED or AWARDED |
 | total_goals_ft | integer | null before kickoff |
-| home_points | integer | 3/1/0 from `winner` |
-| away_points | integer | 3/1/0 from `winner` |
+| home_points | integer | 3/1/0 from `winner`; null until `has_result` |
+| away_points | integer | 3/1/0 from `winner`; null until `has_result` |
 | _loaded_at | timestamp | |
 
 ## marts schema
@@ -240,8 +240,8 @@ No model reads `stg_standings`; `assert_standings_reconcile_with_endpoint` does.
 | home_score_ht | integer | null before kickoff; the live score during play |
 | away_score_ht | integer | null before kickoff; the live score during play |
 | total_goals_ft | integer | null before kickoff |
-| home_points | integer | 3/1/0 from `winner`; null while `winner` is null |
-| away_points | integer | 3/1/0 from `winner`; null while `winner` is null |
+| home_points | integer | 3/1/0 from `winner`; null until `has_result` |
+| away_points | integer | 3/1/0 from `winner`; null until `has_result` |
 | has_result | boolean | FINISHED or AWARDED |
 | _loaded_at | timestamp | when raw last saw this match's payload change |
 
