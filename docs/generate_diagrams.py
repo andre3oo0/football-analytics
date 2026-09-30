@@ -56,10 +56,12 @@ LINEAGE_STYLE = {
 def build_lineage(m: dict) -> tuple[str, str]:
     nodes: dict[str, dict] = {}
 
-    for nid, s in m["sources"].items():
+    # Walk everything in sorted order: the manifest's own ordering differs
+    # between platforms, and the output must be byte-identical on CI.
+    for nid, s in sorted(m["sources"].items()):
         nodes[nid] = {"label": f'{s["source_name"]}.{s["name"]}', "kind": "source"}
 
-    for nid, n in m["nodes"].items():
+    for nid, n in sorted(m["nodes"].items()):
         rt = n["resource_type"]
         if rt == "seed":
             nodes[nid] = {"label": n["name"], "kind": "seed"}
@@ -74,13 +76,13 @@ def build_lineage(m: dict) -> tuple[str, str]:
             # bespoke singular tests only; the generic ones would swamp the picture
             nodes[nid] = {"label": n["name"], "kind": "test"}
 
-    edges = [
+    edges = sorted(
         (p, c)
         for c, parents in m["parent_map"].items()
         if c in nodes
         for p in parents
         if p in nodes
-    ]
+    )
 
     # longest-path depth, so every edge points strictly rightwards
     depth = {n: 0 for n in nodes}
