@@ -10,7 +10,7 @@ Python 3.11 or newer.
 ```bash
 python -m venv .venv
 source .venv/bin/activate              # Windows: .venv\Scripts\activate
-pip install -r requirements-dev.txt    # or requirements.txt without pytest/ruff
+pip install -r requirements-dev.lock   # exact versions CI uses; requirements.lock without pytest/ruff
 ```
 
 For live data you need a free football-data.org key
@@ -58,6 +58,15 @@ cd dbt && dbt build --profiles-dir .
 
 The full ingestion CLI is in [ingestion.md](ingestion.md).
 
+To change a dependency, edit the range in `requirements.txt` or
+`requirements-dev.txt` and regenerate the lock files
+([uv](https://docs.astral.sh/uv/) is needed for this step only):
+
+```bash
+uv pip compile requirements.txt --universal --python-version 3.11 -o requirements.lock
+uv pip compile requirements-dev.txt --universal --python-version 3.11 -o requirements-dev.lock
+```
+
 ## Commands
 
 ```bash
@@ -70,7 +79,7 @@ dbt build --profiles-dir .               # seed, models, unit tests, data tests
 dbt build --profiles-dir . --full-refresh
 dbt test  --profiles-dir . --select fact_standings
 dbt source freshness --profiles-dir .    # age of the last successful ingestion run
-dbt docs generate --profiles-dir . && dbt docs serve --profiles-dir .
+dbt docs generate --profiles-dir . && dbt docs serve --profiles-dir .   # or read them at https://andre3oo0.github.io/football-analytics/
 
 # from the repo root
 python export_marts.py                   # marts -> exports/*.parquet

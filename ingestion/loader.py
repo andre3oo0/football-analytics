@@ -32,6 +32,8 @@ from pathlib import Path
 
 import duckdb
 
+from .config import MAX_MATCH_DELETES_PER_LOAD
+
 log = logging.getLogger(__name__)
 
 _DDL: list[str] = [
@@ -100,6 +102,10 @@ def _rows_to_json(columns: list[str], rows: list[tuple]) -> str:
     def value(v):
         return v.isoformat(sep=" ") if isinstance(v, datetime) else v
     return json.dumps([{c: value(v) for c, v in zip(columns, row, strict=True)} for row in rows])
+
+
+class LoadAnomaly(RuntimeError):
+    """A response is well-formed but would change raw in a way that looks wrong."""
 
 
 @dataclass
@@ -245,17 +251,22 @@ class RawLoader:
         match_ids = [r[0] for r in rows]
         deleted = 0
         if season_ids:
-            deleted = len(self.con.execute(
-                """
-                DELETE FROM raw.matches
+            stale = """
+                FROM raw.matches
                 WHERE competition_code = ?
                   AND (payload ->> '$.season.id')::BIGINT
                       IN (SELECT value::BIGINT FROM json_each(?))
                   AND match_id NOT IN (SELECT value::BIGINT FROM json_each(?))
-                RETURNING match_id
-                """,
-                [competition_code, json.dumps(season_ids), json.dumps(match_ids)],
-            ).fetchall())
+            """
+            params = [competition_code, json.dumps(season_ids), json.dumps(match_ids)]
+            to_delete = self.con.execute(f"SELECT count(*) {stale}", params).fetchone()[0]
+            if to_delete > MAX_MATCH_DELETES_PER_LOAD:
+                raise LoadAnomaly(
+                    f"{competition_code}: the response would delete {to_delete} stored "
+                    f"matches (limit {MAX_MATCH_DELETES_PER_LOAD}); refusing to apply it"
+                )
+            deleted = len(self.con.execute(f"DELETE {stale} RETURNING match_id",
+                                           params).fetchall())
             if deleted:
                 log.warning("%s: deleted %d match(es) no longer returned by the API",
                             competition_code, deleted)

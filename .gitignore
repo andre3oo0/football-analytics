@@ -36,3 +36,6 @@ env/
 Thumbs.db
 .idea/
 .vscode/
+
+# GitHub Pages build output
+_site/

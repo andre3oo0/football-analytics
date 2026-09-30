@@ -110,6 +110,11 @@ any match stored for that competition and season that is missing from the
 response is deleted, and the count is logged. Teams are never deleted: a
 relegated team is still referenced by earlier seasons.
 
+A real removal is rare, so there is a limit: if one response would delete more
+than `MAX_MATCH_DELETES_PER_LOAD` (5) stored matches, the loader raises
+`LoadAnomaly` instead of deleting them. The run then fails and rolls back like
+any other endpoint failure, and raw keeps the matches it had.
+
 ### Standings
 
 A standings response is one snapshot at `season.currentMatchday` and can hold
@@ -124,7 +129,8 @@ skipped, counted and logged.
 back: start and finish time (UTC), `status` (`success` or `failed`), the season
 and refresh flag, endpoints loaded, rows received, changed and deleted, and the
 failure messages. For a failed run the counts are zero, because nothing was
-committed. dbt's source freshness check reads this table.
+committed. dbt's source freshness check reads this table, and the nightly
+pipeline runs that check on the restored warehouse before each ingest.
 
 ## run.py
 
@@ -157,7 +163,7 @@ response that succeeded is already cached.
 | Exit code | Meaning |
 |-----------|---------|
 | 0 | every endpoint loaded (404s skipped) and committed |
-| 1 | at least one endpoint failed; nothing committed |
+| 1 | at least one endpoint failed (including a `LoadAnomaly`); nothing committed |
 | 2 | an unknown competition code was passed |
 
 A run logs its settings, one line per competition and endpoint (received,

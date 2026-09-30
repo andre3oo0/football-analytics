@@ -13,6 +13,7 @@
 ![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-nightly-2088FF?logo=githubactions&logoColor=white)
 ![cron-job.org](https://img.shields.io/badge/trigger-cron--job.org-6A1B9A)
 ![Parquet](https://img.shields.io/badge/export-Parquet-50ABF1?logo=apacheparquet&logoColor=white)
+[![dbt docs](https://img.shields.io/badge/dbt_docs-live-FF694B?logo=readthedocs&logoColor=white)](https://andre3oo0.github.io/football-analytics/)
 
 </div>
 
@@ -40,6 +41,7 @@ league tables the API publishes.
 | 🧱 **Marts** | 4 dimensions and 3 facts, each with an enforced contract |
 | ✅ **Tests** | pytest, dbt unit tests, data tests and a reconciliation against the API's tables |
 | 📦 **Output** | Parquet files per mart, uploaded as a build artifact every night |
+| 📖 **dbt docs** | rebuilt nightly and published at [andre3oo0.github.io/football-analytics](https://andre3oo0.github.io/football-analytics/) |
 
 ## 🗺️ Architecture
 
@@ -118,6 +120,10 @@ call fails or the token expires, the scheduled run still arrives, late, and does
 the work. When the 02:00 run has already succeeded, a small `decide` job skips
 it, so the data isn't pulled twice.
 
+**Exact versions.** CI and the pipeline install `requirements.lock` for the
+Python version in `.python-version`, so a new dependency release can't change
+a nightly build without a commit.
+
 **Where the state lives.** Each successful run saves the warehouse and the raw
 JSON to the Actions cache, and the next run restores it, so completed seasons
 aren't downloaded again. A failed run saves nothing, which leaves the last good
@@ -155,7 +161,7 @@ No API key needed. One real season (Premier League 2024/25) is committed in
 ```bash
 python -m venv .venv
 source .venv/bin/activate              # Windows: .venv\Scripts\activate
-pip install -r requirements-dev.txt
+pip install -r requirements-dev.lock
 
 python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions PL
 cd dbt && dbt build --profiles-dir .
@@ -173,9 +179,10 @@ With a free football-data.org API key in `.env` (copy `.env.example`),
 | 🐍 **pytest** | API client retries, 404s and invalid bodies; response validation; the loader's idempotency, change-only upserts, deletes and rollback; a full ingestion run over the fixtures |
 | 🧪 **dbt unit tests** | standings on hand-built data: a postponed match, shared positions, a team with no game in a window; AWARDED and live matches; status normalisation |
 | 🔑 **generic tests** | keys, every foreign key, enum values, the grain of each fact |
-| 📐 **singular tests** | a complete double round-robin, `winner` agreeing with the score, scores present for every result, snapshots moving forward |
+| 📐 **singular tests** | a complete double round-robin, `winner` agreeing with the score, scores present for every result, snapshots moving forward, plausible goal totals |
 | 📜 **contracts** | column names and types on all seven marts |
 | ⚖️ **reconciliation** | the derived table against the API's standings, team by team, for every season |
+| 🚨 **anomaly guards** | ingestion refuses a response that would delete more than 5 stored matches; each nightly run warns if the restored warehouse is more than a day old |
 
 CI runs all of it on every pull request, with no API key. Details in
 [docs/testing-and-quality.md](docs/testing-and-quality.md).

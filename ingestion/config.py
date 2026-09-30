@@ -28,6 +28,11 @@ MAX_RETRIES: int = 5
 BACKOFF_BASE_SECONDS: float = 5.0   # base for exponential backoff on 429 / 5xx / network errors
 REQUEST_TIMEOUT_SECONDS: float = 30.0
 
+# A match really removed from a season's fixture list is rare. A response that
+# would delete more than this many of a season's stored matches is treated as
+# a bad response and fails the run instead of being applied.
+MAX_MATCH_DELETES_PER_LOAD: int = 5
+
 
 @dataclass(frozen=True)
 class Competition:
