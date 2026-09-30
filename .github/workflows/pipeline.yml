@@ -1,6 +1,6 @@
 name: football-data-pipeline
 
-# Scheduled run of the real pipeline: restore yesterday's warehouse, ingest the
+# Nightly run of the real pipeline: restore yesterday's warehouse, ingest the
 # live season, dbt build (models, unit tests and data tests), export the marts,
 # and save the warehouse for tomorrow.
 #
@@ -9,6 +9,11 @@ name: football-data-pipeline
 # A failed run saves nothing, so a bad day never overwrites a good warehouse.
 # If there's no cache (first run, or GitHub evicted it after 7 days without a
 # run), the bootstrap step backfills the completed seasons from the API first.
+#
+# Timing: GitHub starts `schedule` runs late under load (4-7 hours here), so the
+# nightly run is started at 02:00 SAST by an external cron service calling the
+# workflow_dispatch API (see docs/orchestration.md). The schedule below is only
+# a fallback: its run exits early if tonight's run has already succeeded.
 
 on:
   schedule:
@@ -26,7 +31,40 @@ permissions:
   contents: read
 
 jobs:
+  # A scheduled (fallback) run is skipped when a run that started on or after
+  # tonight's 00:00 UTC slot has already succeeded. Manual and API-dispatched
+  # runs always go ahead.
+  decide:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # Ten minutes before today's 00:00 UTC, as an ISO timestamp.
+          midnight=$(date -u -d "$(date -u +%F)" +%s)
+          since=$(date -u -d "@$((midnight - 600))" +%Y-%m-%dT%H:%M:%SZ)
+          earlier=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow pipeline.yml \
+            --status success --limit 20 --json createdAt,url \
+            --jq "map(select(.createdAt >= \"$since\")) | first | .url // empty")
+          if [ -n "$earlier" ]; then
+            echo "Tonight's run already succeeded: $earlier. Skipping."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "No successful run since $since. Running as the fallback."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
   run-pipeline:
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-latest
     env:
       FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}

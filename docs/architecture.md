@@ -84,6 +84,7 @@ run succeeds; see [orchestration.md](orchestration.md).
 - DuckDB as the warehouse.
 - dbt-duckdb for transformation, tests and docs.
 - pytest and ruff for the Python code.
-- GitHub Actions for CI and the daily schedule.
+- GitHub Actions for CI and the nightly pipeline, started by an external cron
+  service with GitHub's schedule as a fallback.
 
 Version ranges are in `requirements.txt` and `requirements-dev.txt`.
