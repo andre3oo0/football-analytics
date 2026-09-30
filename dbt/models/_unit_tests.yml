@@ -1,0 +1,103 @@
+version: 2
+
+# Hand-built fixtures for the one non-trivial model. Six teams, three matchdays:
+#
+#   MD1 2026-08-01  A 2-0 B   C 1-1 D   E 0-0 F
+#   MD2 2026-08-08  B 3-0 E   (08-09) D 0-1 F   A v C postponed -> played 08-22 (1-0)
+#   MD3 2026-08-15  A 0-0 D   B 1-2 C   E 2-2 F
+#
+# What it pins down:
+#   * postponement: the MD2 table (as of 08-09) has A and C on one game, and it
+#     doesn't change when A v C is finally played. A v C first counts at MD3,
+#     the latest snapshot, which runs to the latest result (08-22).
+#   * no game in a window: A and C still get an MD2 row.
+#   * ties: after MD1, C and D (and E and F) are level on points, goal
+#     difference and goals for, so they share a position.
+
+unit_tests:
+  - name: fact_standings_postponed_match_and_ties
+    model: fact_standings
+    overrides:
+      macros:
+        is_incremental: false
+    given:
+      - input: ref('fct_team_matches')
+        format: csv
+        rows: |
+          match_id,team_id,competition_code,season_id,matchday,kickoff_date,stage,has_result,goals_for,goals_against,points,result,_loaded_at
+          1,1,XX,99,1,2026-08-01,REGULAR_SEASON,true,2,0,3,W,2026-08-23 06:00:00
+          1,2,XX,99,1,2026-08-01,REGULAR_SEASON,true,0,2,0,L,2026-08-23 06:00:00
+          2,3,XX,99,1,2026-08-01,REGULAR_SEASON,true,1,1,1,D,2026-08-23 06:00:00
+          2,4,XX,99,1,2026-08-01,REGULAR_SEASON,true,1,1,1,D,2026-08-23 06:00:00
+          3,5,XX,99,1,2026-08-01,REGULAR_SEASON,true,0,0,1,D,2026-08-23 06:00:00
+          3,6,XX,99,1,2026-08-01,REGULAR_SEASON,true,0,0,1,D,2026-08-23 06:00:00
+          4,2,XX,99,2,2026-08-08,REGULAR_SEASON,true,3,0,3,W,2026-08-23 06:00:00
+          4,5,XX,99,2,2026-08-08,REGULAR_SEASON,true,0,3,0,L,2026-08-23 06:00:00
+          5,4,XX,99,2,2026-08-09,REGULAR_SEASON,true,0,1,0,L,2026-08-23 06:00:00
+          5,6,XX,99,2,2026-08-09,REGULAR_SEASON,true,1,0,3,W,2026-08-23 06:00:00
+          6,1,XX,99,2,2026-08-22,REGULAR_SEASON,true,1,0,3,W,2026-08-23 06:00:00
+          6,3,XX,99,2,2026-08-22,REGULAR_SEASON,true,0,1,0,L,2026-08-23 06:00:00
+          7,1,XX,99,3,2026-08-15,REGULAR_SEASON,true,0,0,1,D,2026-08-23 06:00:00
+          7,4,XX,99,3,2026-08-15,REGULAR_SEASON,true,0,0,1,D,2026-08-23 06:00:00
+          8,2,XX,99,3,2026-08-15,REGULAR_SEASON,true,1,2,0,L,2026-08-23 06:00:00
+          8,3,XX,99,3,2026-08-15,REGULAR_SEASON,true,2,1,3,W,2026-08-23 06:00:00
+          9,5,XX,99,3,2026-08-15,REGULAR_SEASON,true,2,2,1,D,2026-08-23 06:00:00
+          9,6,XX,99,3,2026-08-15,REGULAR_SEASON,true,2,2,1,D,2026-08-23 06:00:00
+          10,1,XX,99,4,2026-08-29,REGULAR_SEASON,false,,,,,2026-08-23 06:00:00
+          10,2,XX,99,4,2026-08-29,REGULAR_SEASON,false,,,,,2026-08-23 06:00:00
+    expect:
+      format: csv
+      rows: |
+        team_id,matchday,as_of_date,played,points,goal_difference,position
+        1,1,2026-08-01,1,3,2,1
+        2,1,2026-08-01,1,0,-2,6
+        3,1,2026-08-01,1,1,0,2
+        4,1,2026-08-01,1,1,0,2
+        5,1,2026-08-01,1,1,0,4
+        6,1,2026-08-01,1,1,0,4
+        1,2,2026-08-09,1,3,2,2
+        2,2,2026-08-09,2,3,1,3
+        3,2,2026-08-09,1,1,0,4
+        4,2,2026-08-09,2,1,-1,5
+        5,2,2026-08-09,2,1,-3,6
+        6,2,2026-08-09,2,4,1,1
+        1,3,2026-08-22,3,7,3,1
+        2,3,2026-08-22,3,3,0,4
+        3,3,2026-08-22,3,4,0,3
+        4,3,2026-08-22,3,2,-1,5
+        5,3,2026-08-22,3,2,-3,6
+        6,3,2026-08-22,3,5,1,2
+
+  - name: int_matches_awarded_counts_postponed_does_not
+    model: int_matches
+    given:
+      - input: ref('stg_matches')
+        format: csv
+        rows: |
+          match_id,status,winner,home_score_ft,away_score_ft
+          1,FINISHED,HOME_TEAM,2,1
+          2,AWARDED,AWAY_TEAM,0,2
+          3,POSTPONED,,,
+          4,SCHEDULED,,,
+    expect:
+      format: csv
+      rows: |
+        match_id,has_result,home_points,away_points,total_goals_ft
+        1,true,3,0,3
+        2,true,0,3,2
+        3,false,,,
+        4,false,,,
+
+  - name: stg_matches_normalises_timestamp_status
+    model: stg_matches
+    given:
+      - input: source('raw', 'matches')
+        rows:
+          - {match_id: 1, competition_code: PL, payload: '{"status": "TIMED", "utcDate": "2026-09-13T14:00:00Z"}'}
+          - {match_id: 2, competition_code: PL, payload: '{"status": "2026-09-13 14:00:00Z", "utcDate": "2026-09-13T14:00:00Z"}'}
+          - {match_id: 3, competition_code: PL, payload: '{"status": "FINISHED", "utcDate": "2026-09-06T14:00:00Z"}'}
+    expect:
+      rows:
+        - {match_id: 1, status: TIMED, status_raw: TIMED, kickoff_date: 2026-09-13}
+        - {match_id: 2, status: SCHEDULED, status_raw: "2026-09-13 14:00:00Z", kickoff_date: 2026-09-13}
+        - {match_id: 3, status: FINISHED, status_raw: FINISHED, kickoff_date: 2026-09-06}

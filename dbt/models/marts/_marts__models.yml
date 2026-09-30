@@ -1,46 +1,70 @@
 version: 2
 
-# Tests here cover primary-key uniqueness/not-null, the fact grain,
-# accepted_values, and a relationships test on every foreign key. The custom
-# singular tests live in dbt/tests/. Test arguments sit under `arguments:`,
-# which is what dbt 1.10 wants.
+# Every mart has an enforced contract: the column names and types below are the
+# interface the BI layer builds on, and dbt refuses to build a model whose
+# output doesn't match. Keys have unique/not_null tests, every foreign key has a
+# relationships test, and the business-rule tests live in dbt/tests/.
 
 models:
-  # dimensions
+  # Dimensions
   - name: dim_competitions
-    description: "One row per competition. competition_type = LEAGUE | TOURNAMENT."
+    description: "One row per competition in scope (from seed_competitions)."
+    config:
+      contract: {enforced: true}
     columns:
       - name: competition_code
-        description: "Primary key."
+        data_type: varchar
+        description: "Primary key, e.g. PL."
         data_tests: [unique, not_null]
       - name: competition_name
+        data_type: varchar
         description: "Human-readable competition name."
-      - name: competition_type
-        description: "Analytical classification: LEAGUE or TOURNAMENT."
-        data_tests:
-          - accepted_values:
-              arguments:
-                values: ['LEAGUE', 'TOURNAMENT']
+        data_tests: [not_null]
 
   - name: dim_teams
     description: >
-      One row per team, unioned across every season/competition ingested
-      (team_id is globally unique in the source).
+      One row per team across every season ingested (team_id is globally unique
+      in the source). Type 1: the latest payload wins, no history.
+    config:
+      contract: {enforced: true}
     columns:
       - name: team_id
+        data_type: bigint
         description: "Primary key."
         data_tests: [unique, not_null]
       - name: team_name
-        description: "Full team name."
+        data_type: varchar
+        description: "Full club name."
         data_tests: [not_null]
+      - name: short_name
+        data_type: varchar
+      - name: tla
+        data_type: varchar
+        description: "Three-letter abbreviation."
+      - name: area_name
+        data_type: varchar
+      - name: founded_year
+        data_type: integer
+      - name: venue
+        data_type: varchar
+      - name: club_colors
+        data_type: varchar
+      - name: crest_url
+        data_type: varchar
+      - name: website
+        data_type: varchar
 
   - name: dim_seasons
     description: "One row per competition-season."
+    config:
+      contract: {enforced: true}
     columns:
       - name: season_id
+        data_type: bigint
         description: "Primary key (unique per competition)."
         data_tests: [unique, not_null]
       - name: competition_code
+        data_type: varchar
         description: "FK to dim_competitions."
         data_tests:
           - not_null
@@ -49,19 +73,62 @@ models:
                 to: ref('dim_competitions')
                 field: competition_code
       - name: season_label
+        data_type: varchar
         description: "e.g. '2024/25'."
+      - name: season_start_date
+        data_type: date
+      - name: season_end_date
+        data_type: date
+      - name: current_matchday
+        data_type: integer
+        description: "The API's current matchday at the last load. Point-in-time, so it goes stale."
 
-  # facts
+  - name: dim_date
+    description: >
+      One row per calendar day spanning every season. Facts join on
+      kickoff_date (the UTC date of kickoff). Mark it as the date table in BI.
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: date_day
+        data_type: date
+        description: "Primary key."
+        data_tests: [unique, not_null]
+      - name: year
+        data_type: integer
+      - name: quarter
+        data_type: integer
+      - name: month
+        data_type: integer
+      - name: month_name
+        data_type: varchar
+      - name: month_start
+        data_type: date
+      - name: iso_day_of_week
+        data_type: integer
+        description: "1 = Monday ... 7 = Sunday."
+      - name: day_name
+        data_type: varchar
+      - name: is_weekend
+        data_type: boolean
+      - name: week_start
+        data_type: date
+        description: "Monday of the ISO week."
+
+  # Facts
   - name: fact_matches
     description: >
       One row per match across all competitions and seasons. Scores and measures
-      are null until a match has a result; has_result flags FINISHED/AWARDED
-      matches.
+      are null until a match has a result; has_result flags FINISHED/AWARDED.
+    config:
+      contract: {enforced: true}
     columns:
       - name: match_id
-        description: "Grain / degenerate key."
+        data_type: bigint
+        description: "Grain; a degenerate dimension."
         data_tests: [unique, not_null]
       - name: competition_code
+        data_type: varchar
         description: "FK to dim_competitions."
         data_tests:
           - not_null
@@ -70,6 +137,7 @@ models:
                 to: ref('dim_competitions')
                 field: competition_code
       - name: season_id
+        data_type: bigint
         description: "FK to dim_seasons."
         data_tests:
           - not_null
@@ -78,6 +146,7 @@ models:
                 to: ref('dim_seasons')
                 field: season_id
       - name: home_team_id
+        data_type: bigint
         description: "FK to dim_teams."
         data_tests:
           - not_null
@@ -86,29 +155,168 @@ models:
                 to: ref('dim_teams')
                 field: team_id
       - name: away_team_id
-        description: "FK to dim_teams."
+        data_type: bigint
+        description: "FK to dim_teams (role-playing)."
         data_tests:
           - not_null
           - relationships:
               arguments:
                 to: ref('dim_teams')
                 field: team_id
-      - name: has_result
-        description: "True for FINISHED/AWARDED matches (a definitive outcome)."
+      - name: kickoff_date
+        data_type: date
+        description: "UTC date of kickoff. FK to dim_date."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_day
+      - name: stage
+        data_type: varchar
+      - name: group_name
+        data_type: varchar
+      - name: status
+        data_type: varchar
+        description: "Normalised lifecycle status (see stg_matches)."
+      - name: matchday
+        data_type: integer
+        description: "Fixture label, not a date. Postponed games keep their original label."
+      - name: kickoff_utc
+        data_type: timestamp
+      - name: winner
+        data_type: varchar
+      - name: duration
+        data_type: varchar
+      - name: home_score_ft
+        data_type: integer
+      - name: away_score_ft
+        data_type: integer
+      - name: home_score_ht
+        data_type: integer
+      - name: away_score_ht
+        data_type: integer
       - name: total_goals_ft
+        data_type: integer
         description: "Full-time home + away goals; null until played."
+      - name: home_points
+        data_type: integer
+      - name: away_points
+        data_type: integer
+      - name: has_result
+        data_type: boolean
+        description: "True for FINISHED/AWARDED matches (a definitive outcome)."
+        data_tests: [not_null]
+      - name: _loaded_at
+        data_type: timestamp
+        description: "UTC time raw last saw this match's payload change. Audit only; no date relationship."
+
+  - name: fct_team_matches
+    description: >
+      One row per team per match (two per match), home and away unpivoted.
+      The analyst-friendly grain for team questions; unplayed fixtures are
+      included with null measures.
+    config:
+      contract: {enforced: true}
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [match_id, team_id]
+    columns:
+      - name: match_id
+        data_type: bigint
+        description: "FK to fact_matches."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fact_matches')
+                field: match_id
+      - name: team_id
+        data_type: bigint
+        description: "The team this row is about. FK to dim_teams."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_id
+      - name: opponent_team_id
+        data_type: bigint
+        data_tests: [not_null]
+      - name: competition_code
+        data_type: varchar
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_competitions')
+                field: competition_code
+      - name: season_id
+        data_type: bigint
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_seasons')
+                field: season_id
+      - name: kickoff_date
+        data_type: date
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_day
+      - name: kickoff_utc
+        data_type: timestamp
+      - name: matchday
+        data_type: integer
+      - name: stage
+        data_type: varchar
+      - name: status
+        data_type: varchar
+      - name: is_home
+        data_type: boolean
+        data_tests: [not_null]
+      - name: has_result
+        data_type: boolean
+        data_tests: [not_null]
+      - name: goals_for
+        data_type: integer
+      - name: goals_against
+        data_type: integer
+      - name: goal_difference
+        data_type: integer
+      - name: points
+        data_type: integer
+        description: "3/1/0 from the API's winner field; null until the match has a result."
+      - name: result
+        data_type: varchar
+        description: "W / D / L from the scores; null until the match has a result."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['W', 'D', 'L']
+      - name: _loaded_at
+        data_type: timestamp
 
   - name: fact_standings
     description: >
-      League standings derived from match results (not the standings endpoint).
-      One row per team per matchday snapshot, cumulative up to and including that
-      matchday. Incremental (delete+insert on standing_key): a season is
-      re-derived and replaced when new results land.
+      League table after each matchday, derived from match results. One row per
+      team per matchday snapshot, cumulative over every result played on or
+      before as_of_date (see the model's header for how as_of_date is chosen).
+      Incremental: a season is re-derived and replaced when any of its matches
+      changes.
+    config:
+      contract: {enforced: true}
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [competition_code, season_id, team_id, matchday]
     columns:
-      - name: standing_key
-        description: "Surrogate grain key: competition|season|team|matchday."
-        data_tests: [unique, not_null]
       - name: competition_code
+        data_type: varchar
         description: "FK to dim_competitions."
         data_tests:
           - not_null
@@ -117,6 +325,7 @@ models:
                 to: ref('dim_competitions')
                 field: competition_code
       - name: season_id
+        data_type: bigint
         description: "FK to dim_seasons."
         data_tests:
           - not_null
@@ -125,6 +334,7 @@ models:
                 to: ref('dim_seasons')
                 field: season_id
       - name: team_id
+        data_type: bigint
         description: "FK to dim_teams."
         data_tests:
           - not_null
@@ -133,13 +343,40 @@ models:
                 to: ref('dim_teams')
                 field: team_id
       - name: matchday
-        description: "Matchday this cumulative snapshot is taken at."
+        data_type: integer
+        description: "The matchday this snapshot follows."
         data_tests: [not_null]
+      - name: as_of_date
+        data_type: date
+        description: "The date the snapshot is taken at. FK to dim_date."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_day
       - name: played
-        description: "Cumulative games played up to and including this matchday."
+        data_type: integer
+      - name: won
+        data_type: integer
+      - name: drawn
+        data_type: integer
+      - name: lost
+        data_type: integer
+      - name: goals_for
+        data_type: integer
+      - name: goals_against
+        data_type: integer
+      - name: goal_difference
+        data_type: integer
       - name: points
-        description: "Cumulative points (won*3 + drawn)."
+        data_type: integer
+        description: "Cumulative points. Semi-additive: never sum across matchdays."
       - name: position
+        data_type: integer
         description: >
-          League position at this matchday. Tie-break: points desc,
-          goal_difference desc, goals_for desc.
+          Rank at this snapshot by points, goal difference, goals for. Ties
+          share a position; head-to-head rules are not modelled.
+      - name: _loaded_at
+        data_type: timestamp
+        description: "Latest raw change in this season; the incremental watermark."

@@ -1,164 +1,121 @@
 # Data model
 
-A Kimball-style star schema: two fact tables sharing conformed dimensions. For
-column-level detail and types see [data-dictionary.md](data-dictionary.md).
-
-## Entity relationships
+A Kimball-style star schema: four dimensions shared by three facts. Column
+types are in [data-dictionary.md](data-dictionary.md); the reasons behind the
+design are in [design-decisions.md](design-decisions.md).
 
 ![Star schema ER diagram](erd.svg)
 
-Regenerate with `python docs/generate_diagrams.py` (after a `dbt parse`). The
-column lists and layout are curated, but the script checks the foreign keys it
-draws against the model's `relationships` tests and refuses to write the file if
-they disagree — so a new or removed FK can't silently leave this diagram wrong.
-
-The same thing as a mermaid diagram (renders inline on GitHub):
-
-```mermaid
-erDiagram
-  dim_competitions ||--o{ fact_matches   : competition_code
-  dim_seasons      ||--o{ fact_matches   : season_id
-  dim_teams        ||--o{ fact_matches   : home_team_id
-  dim_teams        ||--o{ fact_matches   : away_team_id
-  dim_competitions ||--o{ fact_standings : competition_code
-  dim_seasons      ||--o{ fact_standings : season_id
-  dim_teams        ||--o{ fact_standings : team_id
-  dim_competitions ||--o{ dim_seasons    : competition_code
-
-  dim_competitions {
-    varchar competition_code PK
-    varchar competition_type
-  }
-  dim_teams {
-    bigint team_id PK
-    varchar team_name
-  }
-  dim_seasons {
-    bigint season_id PK
-    varchar competition_code FK
-    varchar season_label
-  }
-  fact_matches {
-    bigint match_id PK
-    varchar competition_code FK
-    bigint season_id FK
-    bigint home_team_id FK
-    bigint away_team_id FK
-  }
-  fact_standings {
-    varchar standing_key PK
-    varchar competition_code FK
-    bigint season_id FK
-    bigint team_id FK
-    int matchday
-  }
-```
-
-`fact_matches` references `dim_teams` twice (home and away), which is a
-role-playing dimension. See [exports.md](exports.md) for how that affects BI
-tools.
-
 ## Dimensions
 
-### dim_competitions
+**`dim_competitions`**: one row per competition, from `seed_competitions`. Key
+`competition_code`; the only attribute is `competition_name`.
 
-One row per competition. Built from the seed `seed_competitions.csv`, because
-`competition_type` is our own analytical classification rather than an API
-field, and the competition list is small static reference data. Primary key
-`competition_code`. Five rows (all leagues).
+**`dim_seasons`**: one row per competition-season, from `int_seasons`. Key
+`season_id` (unique per competition), with `competition_code`, `season_label`
+("2024/25"), start and end dates, and `current_matchday`. The last is the
+API's value at the latest load and goes stale once a season ends.
 
-### dim_teams
+**`dim_teams`**: one row per team, from `stg_teams`. `team_id` is stable across
+seasons, so a club that is relegated and later promoted is one row. Type 1: a
+rename or new crest overwrites the old values.
 
-One row per team, from `stg_teams`. `team_id` is globally unique in the source,
-so no dedup is needed. Because teams are ingested per season, the table is the
-union of every team seen across the seasons loaded (a club relegated after
-2024/25 still appears, so its historical matches resolve their foreign keys). A
-club that leaves and later returns — e.g. Ipswich Town, in 2024/25 and again in
-2026/27 but not 2025/26 — resolves to exactly one row, because `team_id` is
-stable across seasons. Primary key `team_id`. 121 rows.
-
-### dim_seasons
-
-One row per competition-season, from `int_seasons`. `season_id` is unique per
-competition, so it is the primary key. Includes `season_label` (for example
-"2024/25"), start and end dates, and the current matchday. 15 rows (three per
-league: 2024/25, 2025/26, 2026/27).
+**`dim_date`**: one row per calendar day from the earliest season start or
+kickoff to the latest season end or kickoff (a few opening fixtures fall before
+the API's season start date). Year, quarter, month, ISO weekday, weekend flag,
+month start and week start.
 
 ## Facts
 
+| Fact | Grain | Keys to dimensions |
+|------|-------|--------------------|
+| `fact_matches` | one row per match | `competition_code`, `season_id`, `home_team_id`, `away_team_id`, `kickoff_date` |
+| `fct_team_matches` | one row per team per match | `competition_code`, `season_id`, `team_id`, `kickoff_date` (plus `match_id` to `fact_matches`) |
+| `fact_standings` | one row per competition, season, team and matchday | `competition_code`, `season_id`, `team_id`, `as_of_date` |
+
+`kickoff_date` is the UTC date of kickoff.
+
 ### fact_matches
 
-One row per match across every competition and season. Grain is `match_id` (a
-degenerate key). Foreign keys: `competition_code`, `season_id`, `home_team_id`,
-`away_team_id`.
+`match_id` is a degenerate dimension: a key with no dimension table of its own.
+`stage`, `group_name`, `status`, `matchday`, `kickoff_utc`, `winner` and
+`duration` are descriptive attributes on the fact. The measures are the
+full-time and half-time scores, `total_goals_ft`, `home_points`,
+`away_points` and `has_result`. Measures are null until a match has a result;
+they are never coalesced to zero.
 
-Degenerate dimensions carried on the fact: `stage`, `group_name`, `status`,
-`matchday`, `kickoff_utc`, `winner`, `duration`. Measures: `home_score_ft`,
-`away_score_ft`, `home_score_ht`, `away_score_ht`, `total_goals_ft`,
-`home_points`, `away_points`, and the `has_result` flag. Scores and measures are
-null until a match has a result and are never coalesced to zero. 5,256 rows.
+`has_result` is true for `FINISHED` and `AWARDED`. Points (3/1/0) come from the
+API's `winner` field. `dim_teams` plays two roles here, home and away.
 
-`stage` is `REGULAR_SEASON` for every league match. Keeping all competitions in
-one fact table is a deliberate choice; see [design-decisions.md](design-decisions.md).
+### fct_team_matches
+
+The same matches unpivoted: each match appears once from the home side and once
+from the away side, with `team_id`, `opponent_team_id`, `is_home`,
+`goals_for`, `goals_against`, `goal_difference`, `points` and `result`.
+`result` (W/D/L) is computed from the scores and `points` from `winner`, so
+they are independent and a test checks they agree. Unplayed fixtures are
+included with null measures, so a team's full schedule is here.
 
 ### fact_standings
 
-One row per team per matchday snapshot, cumulative up to and including that
-matchday. ~7,200 rows: 7,008 from the completed 2024/25 and 2025/26 seasons (a
-separate progression per season, 3,504 each) plus the live 2026/27 season as its
-matchdays are played.
+The league table after each matchday, computed from `fct_team_matches`
+(regular-season rows with a result). Each row has cumulative `played`, `won`,
+`drawn`, `lost`, `goals_for`, `goals_against`, `goal_difference`, `points`
+and `position`, plus the `as_of_date` the snapshot is taken at. Points are
+semi-additive: take one snapshot per team, never sum across matchdays.
 
-Primary key `standing_key` = `competition|season|team|matchday`. Foreign keys:
-`competition_code`, `season_id`, `team_id`. Measures: `played`, `won`, `drawn`,
-`lost`, `goals_for`, `goals_against`, `goal_difference`, `points`, and
-`position`.
+## How fact_standings is built
 
-## How fact_standings is derived
+A matchday is a fixture label. Postponed games are played weeks after their
+round and a few are brought forward, so "all games labelled matchday N or
+earlier" doesn't describe the table at any real moment. Each snapshot is taken
+as of a date instead:
 
-It is computed from match results, not read from the standings endpoint. The
-reason is in [design-decisions.md](design-decisions.md); here is the mechanism.
+1. For each matchday, take the median kickoff date of its results. The round's
+   end date is the latest kickoff within 3 days of that median, which leaves
+   out games played far from their round.
+2. `as_of_date` is the running maximum of those end dates, so it never goes
+   backwards as the matchday rises.
+3. The latest matchday's `as_of_date` is the date of the season's latest
+   result, so the newest snapshot is always the current table.
+4. Each result is assigned to exactly one snapshot: the first whose
+   `as_of_date` is on or after its kickoff. A postponed game therefore counts
+   in the snapshot after it is played, whatever its label.
+5. Every team is crossed with every snapshot, so a team with no game in a
+   window still gets a row. Window sums over that scaffold give the cumulative
+   figures.
+6. `position` is `rank()` by points, then goal difference, then goals scored.
+   Teams level on all three share a position.
 
-1. Start from `fact_matches`, filtered to `competition_type = 'LEAGUE'`,
-   `stage = 'REGULAR_SEASON'`, and `has_result`. That drops any unplayed match
-   (and, defensively, anything that isn't a league regular-season match).
-2. Split each match into a home perspective and an away perspective, giving one
-   row per team per counting match with that team's goals for/against and points.
-3. Build a scaffold of every team crossed with every matchday in its season. A
-   team therefore gets a row at every matchday, even one it did not play
-   (postponement), so games-in-hand show correctly.
-4. For each (competition, season, team, matchday N), aggregate all of that team's
-   counting matches with matchday <= N: `played`, `won`/`drawn`/`lost` (from the
-   per-match points), goals for/against, goal difference, and points.
-5. `position` is `rank()` over (competition, season, matchday) ordered by points
-   desc, then goal difference desc, then goals for desc.
+A past snapshot does not change when a postponed game is finally played; until
+then the team shows a game in hand. The unit test in `_unit_tests.yml` pins this
+behaviour down on six teams over three matchdays.
 
-### has_result and points
+### Incremental build
 
-`has_result = status in ('FINISHED', 'AWARDED')`. `AWARDED` is an officially
-decided result (a forfeit with a set scoreline) and must count, otherwise a
-league table would be wrong. Per-side points follow the standard 3/1/0 from
-`winner`. Both are computed in `int_matches` and are null-safe.
+`fact_standings` is incremental with `unique_key = [competition_code,
+season_id]` and `incremental_strategy = 'delete+insert'`.
 
-### Incremental behaviour
+- On a full build every season is derived.
+- On an incremental build, the seasons with any `fct_team_matches` row whose
+  `_loaded_at` is newer than the newest `_loaded_at` in the table are
+  re-derived. Because the unique key is the season, delete+insert removes all of
+  that season's old rows and inserts the new ones, so no stale matchday rows
+  survive.
 
-`fact_standings` is materialized incremental with `unique_key = 'standing_key'`
-and `incremental_strategy = 'delete+insert'`:
-
-- First run (or `--full-refresh`): the whole history is built.
-- Later runs: only seasons with a newer `_loaded_at` than what is already stored
-  are re-derived, and the whole affected season is recomputed. delete+insert then
-  deletes the matching keys and reinserts, so a re-fetched matchday is replaced
-  in place and a new matchday is appended. The whole season is recomputed because
-  a corrected early result changes every later matchday's cumulative totals.
+The watermark works because raw only restamps `_loaded_at` when a payload
+changes. The table's `_loaded_at` is the latest change among the season's
+matches. An incremental build after a changed match gives the same result as a
+full refresh; CI runs a second, incremental build on every pull request.
 
 ## Staging and intermediate
 
-- `stg_teams`, `stg_matches`, `stg_standings`: thin views, 1:1 with the raw
-  sources, that unpack the JSON payload into typed columns. No joins, dedup or
-  filtering. `stg_matches` also unpacks the season object (dates, current
-  matchday) so `dim_seasons` can be built. `stg_standings` keeps all table types
-  and adds an `is_total_standing` flag.
-- `int_seasons`: dedups the repeated season object to one row per
-  competition-season and adds `season_label`.
-- `int_matches`: adds the null-safe derived measures (`has_result`,
-  `total_goals_ft`, `home_points`, `away_points`) used by both facts.
+- `stg_teams`, `stg_matches`, `stg_standings`: 1:1 typed views over raw.
+  `stg_matches` maps a kickoff timestamp that the API sometimes puts in
+  `status` to `SCHEDULED`, keeps the original as `status_raw`, and adds
+  `kickoff_date`. `stg_standings` keeps every table type and flags TOTAL with
+  `is_total_standing`.
+- `int_seasons`: one row per competition-season from the season object repeated
+  on every match. Start and end dates use `any_value` (a test checks they agree
+  across the season); `current_matchday` is the highest value seen.
+- `int_matches`: adds `has_result`, `total_goals_ft` and the per-side points.

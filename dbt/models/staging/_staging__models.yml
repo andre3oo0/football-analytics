@@ -1,15 +1,8 @@
 version: 2
 
-# Tests here are staging-scoped: primary-key uniqueness/not-null and
-# accepted_values on the enum-like columns. Relationships and the custom
-# singular tests live with the marts.
-#
-# One thing worth calling out: status and stage list only the values I've
-# actually seen in the data, not the full set the API docs allow. A test that
-# accepts everything catches nothing. I want these to fail if an unexpected
-# value shows up, so I find out the data changed. Adding a new value later is a
-# deliberate one-line edit with a git trail. Test arguments sit under
-# `arguments:` for dbt 1.10.
+# Staging-scoped tests: key uniqueness/not-null and accepted_values on the
+# enum-like columns. stage lists only values seen in the data, so a new one
+# fails the build and adding it is a deliberate edit.
 
 models:
   - name: stg_teams
@@ -21,7 +14,7 @@ models:
           - unique
           - not_null
       - name: team_name
-        description: "Full club / national-team name."
+        description: "Full club name."
         data_tests:
           - not_null
       - name: competition_code
@@ -47,24 +40,21 @@ models:
         data_tests:
           - not_null
       - name: status
-        description: "Match lifecycle status."
+        description: >
+          Match lifecycle status, normalised: a kickoff timestamp that the free
+          tier sometimes returns in this field is mapped to SCHEDULED. Any other
+          unexpected value fails the build, so a new status gets noticed.
         data_tests:
           - not_null
-          # status is a live, source-controlled field, and on the free tier it is
-          # not clean. Besides the real lifecycle values (SCHEDULED, TIMED,
-          # IN_PLAY, PAUSED, FINISHED, SUSPENDED, POSTPONED, CANCELLED, AWARDED),
-          # the API sometimes puts a kickoff timestamp in this field for future
-          # fixtures. So this check runs at WARN severity: it surfaces unexpected
-          # or dirty values in the run output without failing the build. That is
-          # safe because nothing downstream trusts a raw status beyond has_result
-          # (FINISHED/AWARDED), so junk values never reach the marts' logic.
-          # stage below stays a hard failure; it is stable and clean.
           - accepted_values:
               arguments:
                 values: ['SCHEDULED', 'TIMED', 'IN_PLAY', 'PAUSED', 'FINISHED',
                          'SUSPENDED', 'POSTPONED', 'CANCELLED', 'AWARDED']
-              config:
-                severity: warn
+      - name: status_raw
+        description: "status exactly as the API returned it, kept for auditing."
+      - name: kickoff_date
+        description: "UTC date of kickoff."
+        data_tests: [not_null]
       - name: stage
         description: "Competition stage. REGULAR_SEASON for every league match."
         data_tests:
@@ -88,9 +78,8 @@ models:
   - name: stg_standings
     description: >
       Thin typed view of raw.standings (1:1). Keeps all table types and exposes
-      is_total_standing. Nothing downstream depends on this any more, since
-      fact_standings is derived from match results instead; it's kept as a
-      faithful copy of the standings endpoint and for freshness monitoring.
+      is_total_standing. fact_standings doesn't read it (standings are derived
+      from results); assert_standings_reconcile_with_endpoint compares the two.
     columns:
       - name: competition_code
         data_tests: [not_null]

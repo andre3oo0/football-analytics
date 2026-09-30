@@ -1,140 +1,116 @@
 # Running the project
 
-Setup, every command you'll need, common workflows, and troubleshooting.
+Run ingestion, pytest, ruff and the scripts from the repo root, and dbt from
+`dbt/` with `--profiles-dir .`.
 
-## Prerequisites
+## Setup
 
-- Python 3.11 or newer (developed on 3.13).
-- A free football-data.org API key: https://www.football-data.org/client/register
-- Git.
-
-Pinned dependency versions live in [requirements.txt](../requirements.txt):
-`requests`, `python-dotenv`, `duckdb`, `truststore` for ingestion, and
-`dbt-duckdb` (which pulls in dbt-core) for transformation. The local build runs
-Python 3.13, DuckDB 1.5.x, dbt-core 1.12 with the dbt-duckdb adapter 1.10.x.
-
-## First-time setup
+Python 3.11 or newer.
 
 ```bash
-# 1. Virtual environment
 python -m venv .venv
-source .venv/bin/activate            # Windows: .venv\Scripts\activate
-
-# 2. Dependencies
-pip install -r requirements.txt
-
-# 3. Credentials
-cp .env.example .env
-# then edit .env and set FOOTBALL_DATA_API_KEY=your_key_here
+source .venv/bin/activate              # Windows: .venv\Scripts\activate
+pip install -r requirements-dev.txt    # or requirements.txt without pytest/ruff
 ```
 
-`.env` is git-ignored and holds the only secret. In CI the same variable comes
-from a GitHub Actions repository secret. Only `.env.example` is committed.
-
-### Corporate proxy / TLS
-
-If your network does SSL inspection (a corporate root CA), plain certificate
-verification will fail with `CERTIFICATE_VERIFY_FAILED`. The client handles this
-by calling `truststore.inject_into_ssl()`, which verifies against the operating
-system trust store (where that root lives) instead of certifi's bundle.
-Verification stays on. On a normal network or a CI runner there is no corporate
-root, so truststore simply uses the public CAs and nothing special happens.
-
-## Everyday commands
-
-Run ingestion from the repo root, and dbt from the `dbt/` directory.
-
-### Ingest
+For live data you need a free football-data.org key
+(https://www.football-data.org/client/register):
 
 ```bash
-# cache-first: rebuild raw from cached JSON, zero API calls
-python -m ingestion.run
+cp .env.example .env                   # then set FOOTBALL_DATA_API_KEY
+```
 
-# re-fetch the live current season from the API
+`.env` is git-ignored. Without a key, only cached responses can be loaded.
+
+## Build without an API key
+
+`tests/fixtures/raw` holds one real season, Premier League 2024/25 (teams,
+matches and standings):
+
+```bash
+python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions PL
+cd dbt && dbt build --profiles-dir .
+```
+
+This is what CI runs. If a key is set in `.env`, cache-first mode still fetches
+any response that isn't cached, so keep to `--competitions PL --season 2024`
+with the fixtures.
+
+## Build with live data
+
+```bash
+python -m ingestion.run --season 2024    # 2024/25, all five leagues
+python -m ingestion.run --season 2025    # 2025/26
+python -m ingestion.run                  # the live season
+cd dbt && dbt build --profiles-dir .
+```
+
+Each fetch is cached in `data/raw/`, so repeating these commands costs no API
+calls. At the rate limit a full first pull (45 requests) takes about six
+minutes.
+
+To pick up new results for the live season:
+
+```bash
 python -m ingestion.run --refresh
-
-# backfill one completed league season (teams + matches only)
-python -m ingestion.run --refresh --season 2024 \
-    --competitions PL PD BL1 SA FL1 --endpoints teams matches
+cd dbt && dbt build --profiles-dir .
 ```
 
-Full flag reference is in [ingestion.md](ingestion.md).
+The full ingestion CLI is in [ingestion.md](ingestion.md).
 
-### Transform, test, docs
+## Commands
 
 ```bash
-cd dbt
-dbt build --profiles-dir .              # run models + tests in one pass
-dbt run   --profiles-dir .              # models only
-dbt test  --profiles-dir .              # tests only
-dbt source freshness --profiles-dir .   # how stale ingestion is
-dbt docs generate --profiles-dir .      # build catalog + manifest
-dbt docs serve   --profiles-dir .       # interactive docs at localhost:8080
+# Python
+pytest                                   # unit and integration tests
+ruff check .                             # lint
+
+# dbt (from dbt/)
+dbt build --profiles-dir .               # seed, models, unit tests, data tests
+dbt build --profiles-dir . --full-refresh
+dbt test  --profiles-dir . --select fact_standings
+dbt source freshness --profiles-dir .    # age of the last successful ingestion run
+dbt docs generate --profiles-dir . && dbt docs serve --profiles-dir .
+
+# from the repo root
+python export_marts.py                   # marts -> exports/*.parquet
+cd dbt && dbt parse --profiles-dir . && cd .. && python docs/generate_diagrams.py
 ```
 
-Always pass `--profiles-dir .` and run from `dbt/`; the committed `profiles.yml`
-lives there and the DuckDB path is resolved relative to the working directory.
+## Rebuild the warehouse from scratch
 
-### Export to Parquet
-
-```bash
-python export_marts.py                  # writes exports/*.parquet, read-only
-```
-
-## Common workflows
-
-### Rebuild the warehouse from scratch
-
-The DuckDB file is disposable. To rebuild it from cached JSON (no API calls):
+The DuckDB file is disposable. With the JSON cache in place this needs no API
+calls:
 
 ```bash
 rm -f data/football.duckdb data/football.duckdb.wal
-python -m ingestion.run                                                   # live season from cache
-python -m ingestion.run --season 2024 --competitions PL PD BL1 SA FL1 --endpoints teams matches
-python -m ingestion.run --season 2025 --competitions PL PD BL1 SA FL1 --endpoints teams matches
-cd dbt && dbt build --full-refresh --profiles-dir .
-```
-
-### Add a completed season for standings
-
-```bash
-python -m ingestion.run --refresh --season <year> \
-    --competitions PL PD BL1 SA FL1 --endpoints teams matches
+python -m ingestion.run --season 2024
+python -m ingestion.run --season 2025
+python -m ingestion.run
 cd dbt && dbt build --profiles-dir .
 ```
 
-### Refresh live data
+## Checking what's loaded
+
+Row counts change with every run, so they aren't written down here. The
+ingestion run prints the raw counts at the end, `export_marts.py` prints each
+mart's count, and the run log shows what each run did:
 
 ```bash
-python -m ingestion.run --refresh
-cd dbt && dbt build --profiles-dir .
+python -c "import duckdb; duckdb.connect('data/football.duckdb', read_only=True).sql('select * from raw._load_runs order by finished_at desc limit 5').show()"
 ```
-
-## Expected results
-
-After a full build against the current data:
-
-| Table             | Rows   |
-|-------------------|--------|
-| dim_competitions  | 5      |
-| dim_teams         | 121    |
-| dim_seasons       | 15     |
-| fact_matches      | 5,256  |
-| fact_standings    | ~7,200 |
-
-`dbt build` should report `ERROR=0` (the `status` check warns, by design).
-`fact_standings` covers the completed 2024/25 and 2025/26 seasons (3,504 rows
-each) plus the live 2026/27 season as its matchdays are played (see
-[design-decisions.md](design-decisions.md)).
 
 ## Troubleshooting
 
 | Symptom | Cause and fix |
 |---------|---------------|
-| `CERTIFICATE_VERIFY_FAILED` | SSL-inspecting proxy. Make sure `truststore` is installed; the client injects it automatically. |
-| A run hangs or a lock error | Something else holds the DuckDB file open for writing (another run, DBeaver). Close it; keep steps sequential. |
-| `fact_standings` has far fewer rows than expected | You've probably loaded only the live season, which is a couple of matchdays in. Backfill a completed season (2024/25 or 2025/26) for a full progression. |
-| dbt: `Database "football" does not exist` | The DuckDB file stem must be `football` (the source `database:` is set to that). Keep the filename or update `_staging__sources.yml`. |
+| `No cached response ... and no API key set` | The response isn't cached and there is no key. Set `FOOTBALL_DATA_API_KEY`, or use `--cache-dir tests/fixtures/raw --season 2024 --competitions PL`. |
+| Ingestion exits 1 | An endpoint failed and the run rolled back. The log and `raw._load_runs.failures` say which. Re-run; successful responses are cached. |
+| `InvalidResponse` | The API returned 200 with an unexpected body. Nothing was cached. Re-run with `--refresh` later; if it persists, the API changed shape. |
+| A lock error or a step that hangs | Another process holds the DuckDB file (another run, DBeaver). Close it. |
+| `CERTIFICATE_VERIFY_FAILED` | Your network's root CA isn't trusted. Install `truststore` (in `requirements.txt`) and make sure the CA is in the OS trust store. |
+| A historical season returns 403 | The free tier doesn't expose that season. |
+| dbt: `Database "football" does not exist` | The source expects the catalog `football`, i.e. a file named `football.duckdb`. |
 | dbt can't find the profile | Run from `dbt/` with `--profiles-dir .`. |
-| A historical season 403s | The free tier does not expose that season. |
-| `accepted_values` warns on `status` | Expected. The live source returns dirty/volatile status values (sometimes even a timestamp in the field), so the `status` check is warn-level and never fails the build. If the `stage` check ever fails, confirm the new value is legitimate and add it in `_staging__models.yml`. |
+| `accepted_values` fails on `status` or `stage` | The API returned a value not seen before. Check it's legitimate and add it in `dbt/models/staging/_staging__models.yml`. |
+| `fact_standings` looks stale after a logic change | It's incremental. Run `dbt build --profiles-dir . --select fact_standings+ --full-refresh`. |

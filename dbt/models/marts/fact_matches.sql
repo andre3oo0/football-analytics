@@ -1,22 +1,19 @@
--- One row per match across every competition, grain match_id (a degenerate
--- key). Scores and measures are null until a match is played.
---
--- Every competition shares this one table because the grain is identical (a
--- match is a match) and most questions span competitions ("goals per matchday",
--- "results by competition"). The competition FK carries the distinction, so
--- there is no need for per-competition fact tables and UNIONs to query across
--- them.
+-- One row per match across every competition. match_id is a degenerate
+-- dimension: a key with no dimension table of its own. Scores and measures
+-- are null until a match is played. For per-team questions use
+-- fct_team_matches instead, which has one row per side.
 
 select
-    match_id,                  -- grain / degenerate key
+    match_id,
 
-    -- foreign keys into the dimensions
+    -- foreign keys
     competition_code,          -- dim_competitions
     season_id,                 -- dim_seasons
-    home_team_id,              -- dim_teams
-    away_team_id,              -- dim_teams
+    home_team_id,              -- dim_teams (active in the BI model)
+    away_team_id,              -- dim_teams (role-playing, inactive)
+    kickoff_date,              -- dim_date (UTC date)
 
-    -- degenerate dimensions
+    -- low-cardinality descriptive attributes
     stage,
     group_name,
     status,
@@ -35,6 +32,5 @@ select
     away_points,
     has_result,
 
-    -- carried from raw for auditing and the incremental watermark
-    _loaded_at
+    _loaded_at                 -- when raw last saw this match's payload change (UTC)
 from {{ ref('int_matches') }}

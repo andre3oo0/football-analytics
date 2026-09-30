@@ -1,0 +1,62 @@
+name: ci
+
+# Runs on every pull request and every push to main. Needs no API key: it
+# loads the committed fixture season (tests/fixtures/raw, Premier League
+# 2024/25) so a fork or a reviewer can run the whole build.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - name: Lint
+        run: ruff check .
+      - name: Unit tests
+        run: pytest
+
+  dbt:
+    runs-on: ubuntu-latest
+    env:
+      DBT_DUCKDB_PATH: ../data/football.duckdb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Load fixture season (no API calls)
+        run: python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions PL
+
+      - name: dbt build (full)
+        working-directory: dbt
+        run: dbt build --profiles-dir .
+
+      # The second build runs fact_standings' incremental branch against the
+      # table the first build created.
+      - name: dbt build (incremental)
+        working-directory: dbt
+        run: dbt build --profiles-dir . --select fact_standings+
+
+      - name: Diagrams match the model
+        run: |
+          python docs/generate_diagrams.py
+          git diff --exit-code -- docs/erd.svg docs/lineage_dag.svg

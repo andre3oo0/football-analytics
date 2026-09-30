@@ -1,156 +1,220 @@
 # Design decisions
 
-The decisions that shaped the project, each with the reasoning and the
-alternatives that were considered. The point of writing them down is that every
-one should be defensible.
+Each decision is explained once, here. The other docs describe the mechanism
+and link back.
 
-## Idempotent ingestion via table primary keys
+## Ingestion
 
-**Decision.** Loads upsert by natural key with `INSERT ... ON CONFLICT DO
-UPDATE`, and the natural key is a `PRIMARY KEY` on each raw table.
+### Raw holds the key plus the untouched payload
 
-**Why.** Idempotency should be guaranteed by the storage, not by convention. With
-the constraint in place, a duplicate cannot exist even if the loader is called
-wrongly. Re-running is always safe.
+Each raw row is the typed natural key, the API object as `json`, and two
+metadata columns. Ingestion doesn't need to change when the API adds a field,
+and every field-level decision is made in dbt, where it is tested. Flattening in
+Python would couple ingestion to the API schema and split interpretation across
+two languages.
 
-**Alternatives.** Append-only with dedup downstream (fragile, and duplicates
-exist transiently), or truncate-and-reload (loses the cheap incremental story and
-re-hits the API).
+### Idempotency comes from the primary key
 
-## Raw stores the payload as JSON, not flattened columns
+The natural key is a `PRIMARY KEY` on each raw table and loads use
+`INSERT ... ON CONFLICT DO UPDATE`, so a duplicate can't exist even if the
+loader is called twice with the same data. Append-and-dedup-later would leave
+duplicates in raw between runs; truncate-and-reload would lose the change
+tracking below.
 
-**Decision.** Each raw row is the natural key plus the untouched API payload as
-`JSON`.
+### Only changed rows are rewritten
 
-**Why.** It keeps ingestion generic and resistant to API shape changes, and it
-pushes every field-level decision into dbt where it is tested and documented.
+The loader drops incoming rows whose payload matches the stored one before
+upserting. `_loaded_at` then records when a row's content last changed, which
+makes it a usable incremental watermark: an unchanged season doesn't trigger a
+rebuild of `fact_standings`. The cost is one payload comparison per row, which
+is negligible at this size.
 
-**Alternatives.** Flattening in Python couples ingestion to the API schema and
-scatters interpretation across two languages.
+### Removed matches are deleted; teams are not
 
-## One fact table for every competition
+A matches response is the complete fixture list for a season, so a match that
+disappears from it was removed upstream and is deleted from raw. Teams stay: a
+relegated team no longer appears in the current season's teams response, but
+its earlier matches still reference it.
 
-**Decision.** `fact_matches` holds every match from every competition; the
-competition foreign key carries the distinction.
+### A run is one transaction
 
-**Why.** The grain is identical (a match is a match) and most questions span
-competitions. A single table answers them without UNIONs.
+If any endpoint fails, the whole run rolls back. A partial load would give
+dbt matches from today and standings from yesterday, which the reconciliation
+test compares directly. Retrying is cheap because successful responses are
+already cached, so all-or-nothing costs little.
 
-**Alternatives.** Per-competition fact tables fragment the grain and duplicate
-logic.
+### Responses are validated before they are cached
 
-## fact_standings is derived from match results
+A 200 with an unexpected body (an empty list, a count that doesn't match, a
+missing id) would otherwise load zero rows, report success, and then be served
+from the cache on every later run. Validating before the write, writing
+atomically, and validating again on read means a bad file is never trusted.
 
-**Decision.** Compute each matchday's table by cumulating finished match results,
-rather than reading the standings endpoint.
+### Every run is logged in raw._load_runs
 
-**Why.** The endpoint returns a single current table, and in the off-season it
-returns last season's final numbers stamped with the new season at matchday 1,
-which is self-contradictory. Deriving from results is internally consistent and
-gives a real week-by-week progression. As a check, the derived tables match
-reality: 2024/25 Premier League (Liverpool champions on 84 points) and 2025/26
-Premier League (Arsenal champions on 85 points), each confirmed row-for-row
-against the published final table.
+The log holds status, counts and failures per run. It is what source freshness
+is measured on (see below), and it is where to look first when a scheduled run
+fails.
 
-**Consequence.** The standings endpoint data is still landed in `raw.standings`
-(harmless), but nothing downstream uses it, so `stg_standings` is a leaf.
+### Timestamps are naive UTC
 
-## AWARDED counts toward standings
+`_loaded_at` and the run log use UTC without a time zone, so a laptop and a CI
+runner write comparable values. `kickoff_date` is also the UTC date.
 
-**Decision.** `has_result = status in ('FINISHED', 'AWARDED')`.
+### Competitions come from one seed
 
-**Why.** An AWARDED match (a forfeit with an official scoreline) is a real,
-decided result. Excluding it would make a league table wrong by a game. This is a
-deliberate widening of "only played matches count". Three matches are affected:
-two in 2024/25 (BL1, FL1) and one in 2025/26 (FL1).
+`seed_competitions.csv` lists the competitions in scope. Ingestion reads it to
+decide what to pull and dbt builds `dim_competitions` from it, so the two can't
+disagree about which leagues exist.
 
-**Reversible.** Change the predicate in `int_matches.sql` if strict
-FINISHED-only is preferred.
+### TLS verifies against the OS trust store
 
-## delete+insert for the incremental fact
+`truststore` points TLS verification at the operating system's certificate
+store. Verification is never disabled.
 
-**Decision.** `fact_standings` is incremental with `unique_key = standing_key`
-and `incremental_strategy = delete+insert`; a whole season is re-derived when its
-results change.
+## Modelling
 
-**Why.** delete+insert replaces the keys in the incoming batch, so a re-fetched
-matchday updates in place and never duplicates. The whole season is recomputed
-because a corrected early result cascades to every later matchday's totals.
+### One match fact for every competition
 
-**Alternatives.** `append` would duplicate re-fetched matchdays; `merge` would
-add per-column update SQL for no benefit on a single surrogate key.
+`fact_matches` holds every match; `competition_code` carries the distinction.
+The grain is the same everywhere and most questions span leagues, so
+per-competition tables would only add UNIONs.
 
-## dim_competitions from a seed
+### A team-grain fact alongside the match fact
 
-**Decision.** Build `dim_competitions` from `seed_competitions.csv`.
+`fct_team_matches` has one row per team per match. Questions about a team
+("goals scored by Arsenal", "home form") are sums over one column with one
+relationship to `dim_teams`. On `fact_matches` the same question needs the home
+and away columns added together under two relationships, one of them inactive
+in a BI tool. `fact_matches` stays because match-level questions (total goals,
+home win rate) are simpler there.
 
-**Why.** `competition_type` (LEAGUE vs TOURNAMENT) is our classification, not an
-API field, and the list is small static reference data, which is exactly what
-seeds are for. It also decouples the dimension from whether a competition happens
-to have match rows.
+### fact_standings is derived from results
 
-## Clean schema names via a macro
+The standings endpoint returns only the current table, so it can't give a
+matchday-by-matchday history. Before a season starts it also returns the
+previous season's final numbers under the new season's id. Deriving the table
+from results gives a full history and uses the same match data as every other
+mart. The endpoint is still loaded, and a test reconciles the two (see
+[testing-and-quality.md](testing-and-quality.md)).
 
-**Decision.** A `generate_schema_name` macro emits `staging` / `intermediate` /
-`marts` verbatim instead of dbt's default `main_staging` concatenation.
+### Snapshots are taken as of a date
 
-**Why.** The default guards against developers clobbering each other in a shared
-warehouse. That risk does not exist for a single local file, so the cleaner names
-win for a readable lineage graph.
+A matchday is a label, and postponed games carry it for weeks. Summing "every
+game labelled N or earlier" produces tables that never existed and that change
+retroactively when a postponed game is played. Each snapshot is instead taken
+at a date near the end of its round and counts every result played by then,
+so past snapshots are stable and a team with a postponed game shows a game in
+hand, as it did at the time. The date comes from a heuristic; see the
+limitations below. The mechanism is in [data-model.md](data-model.md).
 
-## accepted_values on the enum columns
+### The build is linear
 
-**Decision.** Keep an `accepted_values` list on the enum-like columns. `stage`
-fails the build on an unlisted value; `status` only warns.
+Each result is assigned to exactly one snapshot and window sums produce the
+running totals. The alternative, joining every snapshot to every earlier
+result, joins a number of rows that grows with the square of the number of
+matchdays.
 
-**Why.** The original idea was to fail loudly so a shift in the data gets noticed
-rather than silently accepted. That holds for `stage`, which is stable and clean.
-It does not hold for `status`: it is a live, source-controlled field, and on the
-free tier the API is not clean about it — besides the real lifecycle values it
-sometimes returns a kickoff timestamp in the `status` field for future fixtures.
-Failing the build on that would make CI red for a source quirk we can't control
-and that doesn't affect the model (nothing downstream trusts a raw status beyond
-`has_result`, i.e. FINISHED/AWARDED). So `status` runs at `severity: warn`: the
-unexpected values still show up in the run output, but they don't block the
-pipeline. `stage` stays a hard failure.
+### AWARDED counts as a result
 
-## Backfill one completed season
+`has_result` is true for `FINISHED` and `AWARDED`. An awarded match is an
+officially decided result and the leagues count it. Scores are deliberately
+left out of `has_result`: a result with missing scores fails
+`assert_results_have_scores` and doesn't quietly drop out of the table.
 
-**Decision.** Ingest the completed 2024/25 and 2025/26 league seasons alongside
-the live 2026/27 data.
+### Points from winner, W/D/L from scores
 
-**Why.** The project was built during the off-season, when the live season had no
-finished matches at all and a match-derived standings table came out empty. The
-backfills supplied real finished results to build and demonstrate against. They
-still earn their place now that 2026/27 is under way: each completed season gives
-a full 38- (or 34-) matchday progression, which a season a couple of matchdays
-old cannot. `dim_teams` unions teams across seasons so relegated sides
-still resolve foreign keys — verified across three seasons, including a club that
-left and returned (Ipswich Town), which still resolves to a single `dim_teams`
-row. Each completed season derives its own independent `fact_standings`
-progression.
+Points are computed from the API's `winner` field and wins, draws and losses
+from the scores. Using two fields makes `points = 3 * won + drawn` a real check
+on the data. Computing both from the scores would make that test always pass.
 
-## Single-writer discipline
+### Incremental by season with delete+insert
 
-**Decision.** Every step runs as a separate sequential process; reads use
-`read_only=True`; CI uses a concurrency group.
+`fact_standings` uses `unique_key = [competition_code, season_id]` and
+`delete+insert`. One corrected result changes every later snapshot in its
+season, so the season is the unit of rebuild. With the season as the key,
+delete+insert removes all of its old rows, including matchday rows that no
+longer exist after a snapshot date moves. A key per matchday row would leave
+those orphans behind, and `merge` would need update logic for the same
+outcome.
 
-**Why.** DuckDB allows one writer. Respecting that avoids lock contention and the
-"looks hung" symptom, and it is the pattern CI needs too.
+### Status is normalised in staging, and the test fails the build
 
-## TLS via the OS trust store
+The free tier sometimes returns a kickoff timestamp in the match `status`
+field for future fixtures. `stg_matches` maps those to `SCHEDULED` and keeps
+the original in `status_raw`. With the known quirk handled, the
+`accepted_values` test on `status` runs at error severity, so a genuinely new
+status fails the build.
 
-**Decision.** Use `truststore` to verify against the OS trust store rather than
-disabling verification.
+### Every mart has an enforced contract
 
-**Why.** The dev network does SSL inspection, which breaks certifi. `truststore`
-keeps verification on by trusting the OS store (which has the corporate root),
-and is a no-op with public CAs elsewhere. Disabling verification would have been
-the wrong fix.
+Column names and types of the seven marts are declared in
+`_marts__models.yml`, and dbt refuses to build a mart that doesn't match. The
+marts are what the Parquet export and a BI model depend on, so a type change
+has to be an explicit edit.
 
-## Open decisions
+### Freshness is measured on the run log
 
-- The two team foreign keys on `fact_matches` (`home_team_id`, `away_team_id`)
-  do not match `dim_teams.team_id` by name, because a match references teams in
-  two roles. Left as-is; handled in the BI tool. See [exports.md](exports.md).
-- Whether to keep AWARDED counting toward standings (documented above).
+`_loaded_at` only moves when content changes, and in an international break
+nothing changes for two weeks while ingestion is healthy. Freshness on the data
+tables would warn for the wrong reason, so it is measured on
+`raw._load_runs.finished_at` for successful runs.
+
+### Clean schema names
+
+A `generate_schema_name` macro emits `staging`, `intermediate` and `marts`
+verbatim. dbt's default prefix (`main_staging`) prevents developers clobbering
+each other in a shared warehouse, which doesn't apply to one local file.
+
+## Operations
+
+### State lives in the Actions cache
+
+The scheduled pipeline restores the previous warehouse and JSON cache at the
+start of a run and saves them only if the run succeeds. A failed run can't
+overwrite good state, and the completed seasons aren't re-fetched every day.
+The Actions cache is the simplest store that needs no infrastructure. Its cost
+is eviction, covered below.
+
+### Single writer
+
+DuckDB allows one writer. Steps run as separate sequential processes, the
+export opens the file read-only, and the workflow's concurrency group stops two
+scheduled runs overlapping.
+
+## Known limitations
+
+- **Snapshot dates are a heuristic.** A round ends at its last game within 3
+  days of the round's median kickoff date. Games played more than 3 days after
+  the median are treated as rescheduled and count in the next snapshot, so a round spread over
+  more than a week shows games in hand that were never really outstanding.
+- **Ties share a position.** `rank()` orders by points, goal difference and
+  goals scored. Head-to-head and other league-specific tie-breaks are not
+  modelled, so positions can differ from the official table when teams are
+  level.
+- **Points deductions are not modelled.** Points come only from results. The
+  reconciliation test and `assert_standings_points_consistent` would both fail
+  if a league deducted points.
+- **No history.** `dim_teams` is Type 1 and raw keeps only the current payload
+  per key, so a renamed club shows its new name for every season.
+- **State can be evicted.** GitHub removes caches unused for 7 days. The next
+  scheduled run then finds no warehouse and bootstraps the completed seasons
+  from the API (30 requests, a few minutes at the rate limit).
+- **Whole-season pulls.** Every run fetches each competition's full season.
+  With five leagues that is 15 requests a run; date-windowed extraction would
+  matter only at a larger scale.
+- **A deleted match alone doesn't trigger an incremental rebuild.** The
+  watermark is the newest `_loaded_at` among existing rows, so if a match is
+  deleted from raw and nothing else in its season changes, `fact_standings`
+  keeps the old season until the next change or a `--full-refresh`.
+- **Single-writer DuckDB file.** Nothing runs in parallel against the
+  warehouse.
+- **UTC dates.** `kickoff_date` is the UTC date, which can differ from the local
+  date for a kickoff near midnight.
+- **Reconciliation assumes one run.** The test compares matches and standings
+  as if they came from the same ingestion run. Loading one endpoint without the
+  other can make it fail for timing reasons.
+- **Source freshness is not run automatically.** Neither workflow runs
+  `dbt source freshness`; it is a manual check.
+- **No BI model in the repo.** A Power BI model was started over the marts and
+  is paused. [exports.md](exports.md) records its relationship design.

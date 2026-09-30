@@ -1,109 +1,77 @@
 # Contributing
 
-Thanks for taking a look. This is a short onboarding guide for anyone who wants
-to run the project or make a change. For the full detail, the [docs/](docs/)
-folder has topic-by-topic reference material; start with
-[docs/architecture.md](docs/architecture.md).
+How to run the project and make a change. The [README](README.md) has the
+overview; [docs/](docs/README.md) has the reference material.
 
-## What the project is
+## Setup
 
-A small ELT pipeline: Python ingests football data from the football-data.org
-API into a local DuckDB warehouse, and dbt models it into a tested star schema.
-GitHub Actions runs it on a schedule. See the [README](README.md) for the
-overview.
-
-## Getting set up
-
-You need Python 3.11+ and a free football-data.org API key
-(https://www.football-data.org/client/register).
+Python 3.11 or newer.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-
-cp .env.example .env                 # then set FOOTBALL_DATA_API_KEY
+pip install -r requirements-dev.txt  # runtime deps plus pytest and ruff
 ```
 
-Then build it:
+You don't need an API key to build. The committed fixture season is enough:
 
 ```bash
-python -m ingestion.run              # loads raw from cached JSON (no API calls)
-cd dbt && dbt build --profiles-dir . # run models + tests
+python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions PL
+cd dbt && dbt build --profiles-dir .
 ```
 
-`dbt build` should end with `PASS=73, ERROR=0`. Full command reference and
-troubleshooting are in [docs/running-the-project.md](docs/running-the-project.md).
+For live data, copy `.env.example` to `.env` and set `FOOTBALL_DATA_API_KEY`.
+Once a key is set, cache-first mode fetches any response that isn't cached yet.
+[docs/running-the-project.md](docs/running-the-project.md) has every command.
 
-### A couple of things that will confuse you otherwise
+## Things worth knowing first
 
-- `fact_standings` holds three seasons: the two completed backfills (2024/25,
-  2025/26) with full matchday progressions, plus the live 2026/27 season, which
-  is only a couple of matchdays in and so has far fewer rows. That's expected.
-  See [docs/design-decisions.md](docs/design-decisions.md).
-- The `status` test warns rather than fails. The source sometimes returns junk
-  (a kickoff timestamp) in that field. A warning is normal; a `stage` failure
-  would be real.
-- DuckDB is single-writer. Don't run two things against the file at once, and
-  don't leave it open in a GUI (DBeaver) while the pipeline runs, or steps will
-  block.
-- If you hit `CERTIFICATE_VERIFY_FAILED`, you're behind an SSL-inspecting proxy;
-  `truststore` (already a dependency) handles it.
+- DuckDB allows one writer. Don't run two commands against the warehouse at
+  once, and close any GUI (DBeaver) holding the file open, or steps will block.
+- The fixture season is Premier League 2024/25 only. The other four leagues and
+  the live season need an API key.
+- `fact_standings` is incremental. After changing its logic, rebuild it with
+  `dbt build --profiles-dir . --select fact_standings+ --full-refresh`.
 
-## Project layout
-
-```
-ingestion/   Python: fetch -> cache JSON -> load DuckDB raw schema
-dbt/
-  models/staging/       thin views, 1:1 with raw
-  models/intermediate/  joins, dedup, business logic
-  models/marts/         star schema (dims + facts)
-  tests/                custom singular tests
-  seeds/                competition reference data
-.github/workflows/      the scheduled pipeline
-docs/                   detailed documentation
-```
-
-## How to make a change
+## Making a change
 
 1. Branch off `main`.
-2. Make the change and rebuild: `python -m ingestion.run` then
-   `cd dbt && dbt build --profiles-dir .`. Everything must stay green.
-3. If you add or change a model, add or update its tests and its description in
-   the neighbouring `_*.yml`.
-4. If you changed the DAG or a foreign key, regenerate the diagrams:
-   `cd dbt && dbt parse --profiles-dir . && cd .. && python docs/generate_diagrams.py`.
-   It will refuse to write the ER diagram if its foreign keys no longer match the
-   model's `relationships` tests, which is the point — commit the updated SVGs.
-5. Open a PR describing what changed and why.
+2. Run the checks CI runs:
+
+   ```bash
+   ruff check .
+   pytest
+   python -m ingestion.run --cache-dir tests/fixtures/raw --season 2024 --competitions PL
+   cd dbt && dbt build --profiles-dir .
+   ```
+
+3. A new or changed model gets a description, tests, and (for a mart) contract
+   columns with `data_type` in the neighbouring `_*.yml`.
+4. If you changed the DAG or a foreign key, regenerate the diagrams and commit
+   the SVGs. CI fails if they are out of date.
+
+   ```bash
+   cd dbt && dbt parse --profiles-dir . && cd ..
+   python docs/generate_diagrams.py
+   ```
+
+   The ER diagram's layout is curated in the script, and the script exits
+   non-zero if the foreign keys it draws differ from the `relationships` tests.
+5. Open a pull request saying what changed and why.
 
 ## Conventions
 
-- Keep the layers separate. Staging is 1:1 with raw and only renames, casts and
-  unpacks JSON. Joins, dedup and business logic go in intermediate or marts.
-  Don't collapse layers.
-- Every model gets a description; every primary key gets `unique` + `not_null`;
-  every foreign key gets a `relationships` test.
-- `accepted_values` lists use the values actually observed in the data, not the
-  full API set, so they fail loudly when the data changes. If a legitimate new
-  value appears, widen the list as a deliberate one-line change. The exception is
-  `status`, which is warn-level because the source genuinely returns junk in that
-  field; don't "fix" it by loosening `stage` the same way.
-- Comments are plain sentences. No ASCII banner/divider comment blocks.
-- Ingestion stays thin: land the raw payload keyed by its natural key and let
-  dbt do the interpretation.
+- Staging is 1:1 with raw and only renames, casts, unpacks JSON and normalises
+  values. Joins, dedup and business logic go in intermediate or marts.
+- Every primary key gets `unique` and `not_null`, every foreign key a
+  `relationships` test, and every fact a grain test (`unique_combination` when
+  the grain spans several columns).
+- `accepted_values` lists hold the values seen in the data, and they fail the
+  build on anything new. If a legitimate value appears, add it as a deliberate
+  edit.
+- Ingestion lands the raw payload by natural key and leaves interpretation to
+  dbt.
+- Comments are plain sentences.
 
-## Where the reasoning lives
-
-Design decisions, with rationale and alternatives, are written up in
-[docs/design-decisions.md](docs/design-decisions.md). If you're about to change
-something load-bearing (the standings derivation, the single fact table, the
-incremental strategy), read that first so you know why it is the way it is.
-
-## Tests and CI
-
-`dbt build` runs models and tests together and fails on any failing test. The
-GitHub Actions workflow does the same on a schedule and on demand; a red job
-means a data problem. Details in
-[docs/testing-and-quality.md](docs/testing-and-quality.md) and
-[docs/orchestration.md](docs/orchestration.md).
+Before changing the standings derivation, the incremental strategy or the
+fact tables, read [docs/design-decisions.md](docs/design-decisions.md).

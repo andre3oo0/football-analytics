@@ -1,4 +1,4 @@
--- One row per competition-season, from the deduped int_seasons. season_id is
+-- One row per competition-season, from int_seasons. season_id is
 -- unique per competition, so it works as the primary key.
 
 select

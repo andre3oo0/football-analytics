@@ -1,63 +1,99 @@
-# Exports (serving layer)
+# Exports
 
-The marts are exported to Parquet so a BI tool can consume them. The Power BI
-report itself is out of scope for now; this page covers the export and how the
-schema is set up for clean relationships.
+The marts are exported to Parquet for a BI tool. No Power BI file is committed;
+the model design below is what the paused Power BI work used, updated for the
+current marts.
 
 ## export_marts.py
 
-A standalone script at the repo root. It:
-
-- Opens `data/football.duckdb` with `read_only=True`, so it can never lock out or
-  mutate the warehouse.
-- Exports only the five mart tables (`fact_matches`, `fact_standings`,
-  `dim_teams`, `dim_competitions`, `dim_seasons`) from the `marts` schema, each to
-  `exports/<table>.parquet` via DuckDB `COPY ... (FORMAT PARQUET)`.
-- Creates `exports/` if missing and prints each table's row count as it goes, so
-  a run verifies itself.
-- Is idempotent: re-running overwrites the files, counts unchanged.
-
-It exports marts only, on purpose. This is the curated serving layer, not a
-database dump, so raw/staging/intermediate are not exported.
-
 ```bash
-python export_marts.py
+python export_marts.py                                  # defaults
+python export_marts.py --out exports/ --db path/to/football.duckdb
 ```
 
-`exports/*.parquet` is git-ignored (only `exports/.gitkeep` is committed), the
-same way `data/raw/` is handled. The script is committed; its output is not.
+The script opens the warehouse read-only and writes one Parquet file per mart
+to `exports/<table>.parquet` with DuckDB's `COPY ... (FORMAT PARQUET)`,
+printing each table's row count. It exports the seven marts only: `fact_matches`,
+`fct_team_matches`, `fact_standings`, `dim_teams`, `dim_competitions`,
+`dim_seasons` and `dim_date`.
 
-## Row counts
+| Flag | Default |
+|------|---------|
+| `--db` | `DBT_DUCKDB_PATH` if set (a relative path is relative to `dbt/`, as in the dbt profile), otherwise `data/football.duckdb` |
+| `--out` | `exports/` |
 
-| Table | Rows |
-|-------|------|
-| fact_matches | 3,608 |
-| fact_standings | 3,504 |
-| dim_teams | 164 |
-| dim_competitions | 6 |
-| dim_seasons | 11 |
+Re-running overwrites the files. `exports/*.parquet` is git-ignored. The
+scheduled pipeline uploads the files as the `marts-parquet` artifact, kept for
+14 days.
 
-## Relationships for a BI tool
+## A Power BI model over the marts
 
-Most foreign keys match the dimension key by name and type, so a BI tool
-auto-detects them:
+### Relationships
 
-| Fact FK | Dimension | Dim key | Name match | Type match |
-|---------|-----------|---------|------------|------------|
-| fact_matches.competition_code | dim_competitions | competition_code | yes | yes (VARCHAR) |
-| fact_matches.season_id | dim_seasons | season_id | yes | yes (BIGINT) |
-| fact_matches.home_team_id | dim_teams | team_id | no | yes (BIGINT) |
-| fact_matches.away_team_id | dim_teams | team_id | no | yes (BIGINT) |
-| fact_standings.competition_code | dim_competitions | competition_code | yes | yes |
-| fact_standings.season_id | dim_seasons | season_id | yes | yes |
-| fact_standings.team_id | dim_teams | team_id | yes | yes |
+All relationships are many-to-one from fact to dimension, filtering in one
+direction (dimension to fact).
 
-The only mismatch is the two team foreign keys on `fact_matches`. That is a
-role-playing dimension: a match points at `dim_teams` twice (home and away), so
-they cannot both be called `team_id`. The types match, only the names differ.
+| From | To | Active |
+|------|----|--------|
+| `fact_matches.competition_code` | `dim_competitions.competition_code` | yes |
+| `fact_matches.season_id` | `dim_seasons.season_id` | yes |
+| `fact_matches.home_team_id` | `dim_teams.team_id` | yes |
+| `fact_matches.away_team_id` | `dim_teams.team_id` | no |
+| `fact_matches.kickoff_date` | `dim_date.date_day` | yes |
+| `fct_team_matches.competition_code` | `dim_competitions.competition_code` | yes |
+| `fct_team_matches.season_id` | `dim_seasons.season_id` | yes |
+| `fct_team_matches.team_id` | `dim_teams.team_id` | yes |
+| `fct_team_matches.kickoff_date` | `dim_date.date_day` | yes |
+| `fact_standings.competition_code` | `dim_competitions.competition_code` | yes |
+| `fact_standings.season_id` | `dim_seasons.season_id` | yes |
+| `fact_standings.team_id` | `dim_teams.team_id` | yes |
+| `fact_standings.as_of_date` | `dim_date.date_day` | yes |
+| `dim_seasons.competition_code` | `dim_competitions.competition_code` | no |
 
-The recommended handling is in the BI model, not in dbt: create two relationships
-to `dim_teams[team_id]`, one active and one inactive, and switch between them in
-measures (in Power BI, `USERELATIONSHIP`), or use two role-playing copies of the
-dimension. Renaming in dbt would not help and would break the single-fact design.
-This was left as-is on purpose.
+Leave out a relationship between `fct_team_matches.match_id` and
+`fact_matches.match_id`. The dbt test uses it to check integrity, but in the BI
+model it would give `dim_date` and the other dimensions a second path into
+`fct_team_matches` through `fact_matches`, which is ambiguous. The two facts
+share dimensions, and that is enough to show them side by side.
+
+### Competition has two paths
+
+Each fact reaches `dim_competitions` directly and through `dim_seasons`. Power
+BI allows only one active path, so one link has to be inactive. The model makes
+`dim_seasons` to `dim_competitions` inactive, which breaks every triangle with
+a single cut and keeps all fact-to-dimension links active. `competition_code`
+is on every fact, so the direct link is the natural one to keep.
+
+### Dates
+
+Mark `dim_date` as the date table on `date_day` and turn off auto date/time for
+the file, or Power BI adds a hidden date table per date column.
+
+Each fact has one active relationship to `dim_date`: `kickoff_date` for
+`fact_matches` and `fct_team_matches`, and `as_of_date` for `fact_standings`.
+Filtering standings by date then means "the table as it stood on that date".
+`kickoff_date` is the UTC date. The `_loaded_at` columns are pipeline audit
+fields and get no date relationship.
+
+### Team measures
+
+Use `fct_team_matches` for anything about a team: goals scored and conceded,
+points, form, home and away splits (`is_home`). It has one team column and one
+active relationship to `dim_teams`. The same measures on `fact_matches` need the
+home and away columns combined, with `USERELATIONSHIP` on the inactive
+`away_team_id` relationship for the away side. Keep `fact_matches` for
+match-level measures such as total goals or home win rate.
+
+### Standings are semi-additive
+
+`fact_standings` rows are cumulative snapshots. Summing `points`, `played` or
+any other column across matchdays gives nonsense. A standings measure should
+pick, per team, the latest snapshot in the current filter context (the highest
+`matchday` within a competition-season, or the latest `as_of_date` up to the
+selected date) and read that row. `position` is an ordinal and should never be
+summed.
+
+### Summarisation
+
+Set every key and ordinal (`*_id`, `matchday`, `position`, `current_matchday`,
+`founded_year`) to "Don't summarize", so a dragged-in column doesn't add up ids.

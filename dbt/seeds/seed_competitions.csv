@@ -1,6 +1,6 @@
-competition_code,competition_name,competition_type
-PL,Premier League,LEAGUE
-PD,La Liga,LEAGUE
-BL1,Bundesliga,LEAGUE
-SA,Serie A,LEAGUE
-FL1,Ligue 1,LEAGUE
+competition_code,competition_name
+PL,Premier League
+PD,La Liga
+BL1,Bundesliga
+SA,Serie A
+FL1,Ligue 1
