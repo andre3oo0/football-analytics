@@ -41,8 +41,9 @@ month start and week start.
 `stage`, `group_name`, `status`, `matchday`, `kickoff_utc`, `winner` and
 `duration` are descriptive attributes on the fact. The measures are the
 full-time and half-time scores, `total_goals_ft`, `home_points`,
-`away_points` and `has_result`. Measures are null until a match has a result;
-they are never coalesced to zero.
+`away_points` and `has_result`. Scores are null before kickoff and carry the
+live score during play; points are null until the match has a result. Nothing
+is coalesced to zero.
 
 `has_result` is true for `FINISHED` and `AWARDED`. Points (3/1/0) come from the
 API's `winner` field. `dim_teams` plays two roles here, home and away.

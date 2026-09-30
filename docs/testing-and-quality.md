@@ -35,7 +35,8 @@ The same files let anyone run the dbt build without an API key.
   checks that a team with no game in a window still gets a row, and that teams
   level on points, goal difference and goals scored share a position.
 - **`int_matches_awarded_counts_postponed_does_not`**: AWARDED has a result and
-  points; POSTPONED and SCHEDULED do not.
+  points; POSTPONED and SCHEDULED do not, and neither do IN_PLAY or SUSPENDED
+  matches that already carry a score and a provisional winner.
 - **`stg_matches_normalises_timestamp_status`**: a kickoff timestamp in
   `status` becomes `SCHEDULED`, with the original kept in `status_raw`.
 
