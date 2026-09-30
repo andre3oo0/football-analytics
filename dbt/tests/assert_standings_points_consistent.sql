@@ -1,10 +1,8 @@
--- Singular test: in fact_standings, points must equal won*3 + drawn (3/1/0).
--- Internal-consistency check on the derived cumulative record.
+-- points must equal 3*won + drawn. Points are summed from the API's `winner`
+-- field and won/drawn from the scores (see fct_team_matches), so this checks
+-- two independent sources agree at every snapshot. It would also fail on a
+-- points deduction, which isn't modelled.
 
-select
-    standing_key,
-    points,
-    won,
-    drawn
+select competition_code, season_id, team_id, matchday, points, won, drawn
 from {{ ref('fact_standings') }}
 where points <> won * 3 + drawn

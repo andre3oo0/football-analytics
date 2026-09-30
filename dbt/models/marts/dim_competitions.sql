@@ -1,9 +1,7 @@
--- One row per competition. Comes from a seed because competition_type
--- (LEAGUE vs TOURNAMENT) is my own classification, not a raw API field, and the
--- list of competitions is small, static reference data.
+-- One row per competition, from the seed. The seed is also what ingestion
+-- reads to decide which competitions to pull, so the two can't drift apart.
 
 select
-    competition_code,          -- primary key (facts reference it)
-    competition_name,
-    competition_type           -- 'LEAGUE' or 'TOURNAMENT'
+    competition_code,
+    competition_name
 from {{ ref('seed_competitions') }}

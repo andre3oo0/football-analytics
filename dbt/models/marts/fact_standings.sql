@@ -1,88 +1,167 @@
--- League standings, one row per (competition, season, team, matchday), built
--- incrementally.
+-- League table after each matchday: one row per (competition, season, team,
+-- matchday), derived from match results rather than the standings endpoint
+-- (which only ever returns the current table).
 --
--- I derive these from match results rather than reading the standings endpoint.
--- The endpoint only returns a single "current" table, and in the off-season it
--- hands back last season's final numbers stamped with the new season at
--- matchday 1, which is contradictory. Computing each matchday's table from
--- finished results is internally consistent and gives a real week-by-week
--- progression. The raw standings data still lands in raw.standings, but nothing
--- here depends on it.
+-- A matchday is a fixture label, not a point in time: postponed games are
+-- played weeks later, and a few are brought forward. So each snapshot is taken
+-- AS OF A DATE and counts every result played by then, whatever its label:
 --
--- Scope is league regular-season matches (competition_type = 'LEAGUE',
--- stage = 'REGULAR_SEASON'). Every competition is a league today, so these
--- filters are defensive: they keep the model correct if a non-league
--- competition (which wouldn't produce a league table this way) is ever added.
+--   as_of_date(N) = the last day of matchday N's on-schedule games, where
+--                   on-schedule means within 3 days of the round's median
+--                   kickoff date; forced non-decreasing across matchdays.
+--   latest N      = the date of the season's latest result, so the newest
+--                   snapshot is always the current table.
 --
--- Only matches with a definitive result count (has_result = FINISHED or
--- AWARDED); scheduled matches don't. For a team at matchday N the measures are
--- the cumulative record over every counting match with matchday <= N. Position
--- tie-break is points, then goal difference, then goals for.
+-- The snapshot for a past matchday therefore never changes when a postponed
+-- game is finally played. The team simply shows a game in hand until then.
 --
--- Incremental strategy is delete+insert on standing_key. When new results land
--- for a season the whole season is re-derived and its rows replaced, because a
--- corrected early result changes every later matchday's cumulative totals.
+-- Position ties are shared (rank): points, then goal difference, then goals
+-- for. Head-to-head and other league-specific tie-breaks are not modelled.
+--
+-- Incremental: when any match of a season changes (raw _loaded_at only moves
+-- when a payload changes), the whole season is re-derived and its rows are
+-- replaced. unique_key is the season, so delete+insert drops the season's old
+-- rows, including any that no longer exist.
 
 {{ config(
     materialized = 'incremental',
-    unique_key   = 'standing_key',
-    incremental_strategy = 'delete+insert'
+    unique_key   = ['competition_code', 'season_id'],
+    incremental_strategy = 'delete+insert',
+    on_schema_change = 'fail'
 ) }}
 
-with league_results as (
-    select
-        f.competition_code,
-        f.season_id,
-        f.matchday,
-        f.home_team_id,
-        f.away_team_id,
-        f.home_score_ft,
-        f.away_score_ft,
-        f.home_points,
-        f.away_points,
-        f._loaded_at
-    from {{ ref('fact_matches') }} f
-    join {{ ref('dim_competitions') }} c using (competition_code)
-    where c.competition_type = 'LEAGUE'     -- leagues only
-      and f.stage = 'REGULAR_SEASON'
-      and f.has_result                       -- FINISHED or AWARDED only
+{% if is_incremental() %}
+with changed_seasons as (
+    select competition_code, season_id
+    from {{ ref('fct_team_matches') }}
+    where _loaded_at > (select coalesce(max(_loaded_at), timestamp '1900-01-01') from {{ this }})
+
+    union
+
+    -- A match deleted upstream moves no _loaded_at, but it changes how many
+    -- results the season has. The latest snapshot's played column adds up to
+    -- exactly that number, so compare the two.
+    select competition_code, season_id
+    from (
+        select competition_code, season_id, count(*) filter (where has_result) as n_results
+        from {{ ref('fct_team_matches') }}
+        where stage = 'REGULAR_SEASON'
+        group by competition_code, season_id
+    ) now
+    full outer join (
+        select competition_code, season_id, sum(played) as n_results
+        from (
+            select * from {{ this }}
+            qualify matchday = max(matchday) over (partition by competition_code, season_id)
+        )
+        group by competition_code, season_id
+    ) built using (competition_code, season_id)
+    where coalesce(now.n_results, 0) <> coalesce(built.n_results, 0)
 ),
 
-{% if is_incremental() %}
--- Only re-derive seasons that got new or changed results since the last run.
-seasons_to_refresh as (
-    select distinct competition_code, season_id
-    from league_results
-    where _loaded_at > (select coalesce(max(_loaded_at), timestamp '1900-01-01') from {{ this }})
-),
-scoped as (
-    select r.* from league_results r
-    join seasons_to_refresh s using (competition_code, season_id)
+team_matches as (
+    select m.*
+    from {{ ref('fct_team_matches') }} m
+    join changed_seasons using (competition_code, season_id)
+    where m.stage = 'REGULAR_SEASON'
 ),
 {% else %}
-scoped as (select * from league_results),
+with team_matches as (
+    select * from {{ ref('fct_team_matches') }}
+    where stage = 'REGULAR_SEASON'
+),
 {% endif %}
 
--- one row per team per counting match (home and away perspectives)
-team_match as (
-    select competition_code, season_id, matchday, home_team_id as team_id,
-           home_score_ft as gf, away_score_ft as ga, home_points as pts, _loaded_at
-    from scoped
-    union all
-    select competition_code, season_id, matchday, away_team_id as team_id,
-           away_score_ft as gf, home_score_ft as ga, away_points as pts, _loaded_at
-    from scoped
+season_loaded_at as (
+    select competition_code, season_id, max(_loaded_at) as _loaded_at
+    from team_matches
+    group by competition_code, season_id
 ),
 
-teams_in_season as (select distinct competition_code, season_id, team_id from team_match),
-matchdays       as (select distinct competition_code, season_id, matchday from team_match),
+results as (
+    select * from team_matches where has_result
+),
 
--- every team crossed with every matchday of its season, so a team still gets a
--- row at a matchday it didn't play (postponement), with games-in-hand showing
+round_medians as (
+    select competition_code, season_id, matchday,
+           quantile_disc(kickoff_date, 0.5) as median_date
+    from results
+    group by competition_code, season_id, matchday
+),
+
+round_ends as (
+    select r.competition_code, r.season_id, r.matchday,
+           max(r.kickoff_date) as round_end_date
+    from results r
+    join round_medians m using (competition_code, season_id, matchday)
+    where abs(date_diff('day', m.median_date, r.kickoff_date)) <= 3
+    group by r.competition_code, r.season_id, r.matchday
+),
+
+snapshots as (
+    select
+        competition_code,
+        season_id,
+        matchday,
+        max(round_end_date) over (partition by competition_code, season_id order by matchday
+                                  rows between unbounded preceding and current row) as as_of_date,
+        matchday = max(matchday) over (partition by competition_code, season_id) as is_latest
+    from round_ends
+),
+
+latest_result as (
+    select competition_code, season_id, max(kickoff_date) as last_result_date
+    from results
+    group by competition_code, season_id
+),
+
+snapshot_windows as (
+    select
+        s.competition_code,
+        s.season_id,
+        s.matchday,
+        case when s.is_latest then l.last_result_date else s.as_of_date end as as_of_date
+    from snapshots s
+    join latest_result l using (competition_code, season_id)
+),
+
+-- Each result lands in exactly one snapshot: the first whose as_of_date is on
+-- or after its kickoff. Later snapshots pick it up through the running sum.
+bucketed as (
+    select w.matchday as snapshot_matchday, r.*
+    from results r
+    join (
+        select *,
+               lag(as_of_date) over (partition by competition_code, season_id
+                                     order by matchday) as prev_as_of_date
+        from snapshot_windows
+    ) w
+      on  w.competition_code = r.competition_code
+      and w.season_id        = r.season_id
+      and r.kickoff_date    <= w.as_of_date
+      and (w.prev_as_of_date is null or r.kickoff_date > w.prev_as_of_date)
+),
+
+per_snapshot as (
+    select
+        competition_code, season_id, team_id, snapshot_matchday as matchday,
+        count(*)                              as played,
+        count(*) filter (where result = 'W')  as won,
+        count(*) filter (where result = 'D')  as drawn,
+        count(*) filter (where result = 'L')  as lost,
+        sum(goals_for)                        as goals_for,
+        sum(goals_against)                    as goals_against,
+        sum(points)                           as points
+    from bucketed
+    group by competition_code, season_id, team_id, snapshot_matchday
+),
+
+-- every team crossed with every snapshot, so a team with no game in a window
+-- still gets a row
 scaffold as (
-    select t.competition_code, t.season_id, t.team_id, m.matchday
-    from teams_in_season t
-    join matchdays m using (competition_code, season_id)
+    select t.competition_code, t.season_id, t.team_id, w.matchday, w.as_of_date
+    from (select distinct competition_code, season_id, team_id from results) t
+    join snapshot_windows w using (competition_code, season_id)
 ),
 
 cumulative as (
@@ -91,42 +170,39 @@ cumulative as (
         s.season_id,
         s.team_id,
         s.matchday,
-        count(tm.team_id)                            as played,
-        count(tm.team_id) filter (where tm.pts = 3)  as won,
-        count(tm.team_id) filter (where tm.pts = 1)  as drawn,
-        count(tm.team_id) filter (where tm.pts = 0)  as lost,
-        coalesce(sum(tm.gf), 0)                      as goals_for,
-        coalesce(sum(tm.ga), 0)                      as goals_against,
-        coalesce(sum(tm.gf - tm.ga), 0)              as goal_difference,
-        coalesce(sum(tm.pts), 0)                     as points,
-        max(tm._loaded_at)                           as _loaded_at
+        s.as_of_date,
+        sum(coalesce(p.played, 0))        over team_w as played,
+        sum(coalesce(p.won, 0))           over team_w as won,
+        sum(coalesce(p.drawn, 0))         over team_w as drawn,
+        sum(coalesce(p.lost, 0))          over team_w as lost,
+        sum(coalesce(p.goals_for, 0))     over team_w as goals_for,
+        sum(coalesce(p.goals_against, 0)) over team_w as goals_against,
+        sum(coalesce(p.points, 0))        over team_w as points
     from scaffold s
-    left join team_match tm
-        on  tm.competition_code = s.competition_code
-        and tm.season_id        = s.season_id
-        and tm.team_id          = s.team_id
-        and tm.matchday        <= s.matchday
-    group by 1, 2, 3, 4
+    left join per_snapshot p using (competition_code, season_id, team_id, matchday)
+    window team_w as (partition by s.competition_code, s.season_id, s.team_id
+                      order by s.matchday
+                      rows between unbounded preceding and current row)
 )
 
 select
-    concat_ws('|', competition_code, cast(season_id as varchar),
-                    cast(team_id as varchar), cast(matchday as varchar)) as standing_key,
-    competition_code,
-    season_id,
-    team_id,
-    matchday,
-    played,
-    won,
-    drawn,
-    lost,
-    goals_for,
-    goals_against,
-    goal_difference,
-    points,
+    c.competition_code,
+    c.season_id,
+    c.team_id,
+    c.matchday,
+    c.as_of_date,
+    c.played::integer                         as played,
+    c.won::integer                            as won,
+    c.drawn::integer                          as drawn,
+    c.lost::integer                           as lost,
+    c.goals_for::integer                      as goals_for,
+    c.goals_against::integer                  as goals_against,
+    (c.goals_for - c.goals_against)::integer  as goal_difference,
+    c.points::integer                         as points,
     rank() over (
-        partition by competition_code, season_id, matchday
-        order by points desc, goal_difference desc, goals_for desc
-    ) as position,
-    _loaded_at
-from cumulative
+        partition by c.competition_code, c.season_id, c.matchday
+        order by c.points desc, c.goals_for - c.goals_against desc, c.goals_for desc
+    )::integer                                as position,
+    l._loaded_at
+from cumulative c
+join season_loaded_at l using (competition_code, season_id)

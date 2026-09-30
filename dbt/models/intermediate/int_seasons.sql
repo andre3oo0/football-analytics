@@ -1,6 +1,8 @@
--- Collapse the season attributes down to one row per competition-season. The
--- season object repeats identically on every match of a season, so this dedup
--- belongs here rather than in staging.
+-- One row per competition-season from the season object repeated on every
+-- match. Start and end dates are identical across a season's matches (tested
+-- in assert_season_attributes_consistent), so any_value is safe. The API's
+-- currentMatchday moves during a season and older payloads can lag, so the
+-- highest value seen is the current one.
 
 with matches as (
     select
@@ -16,8 +18,8 @@ deduped as (
     select
         competition_code,
         season_id,
-        min(season_start_date)          as season_start_date,
-        max(season_end_date)            as season_end_date,
+        any_value(season_start_date)    as season_start_date,
+        any_value(season_end_date)      as season_end_date,
         max(season_current_matchday)    as current_matchday
     from matches
     group by competition_code, season_id
@@ -25,12 +27,11 @@ deduped as (
 
 select
     *,
-    -- Readable label. A season inside a single calendar year is just that year;
-    -- a cross-year league season is "YYYY/YY".
+    -- "2024/25" for a cross-year season, "2025" for a calendar-year one.
     case
-        when extract(year from season_start_date) = extract(year from season_end_date)
-            then cast(extract(year from season_start_date) as varchar)
-        else cast(extract(year from season_start_date) as varchar)
-             || '/' || right(cast(extract(year from season_end_date) as varchar), 2)
+        when year(season_start_date) = year(season_end_date)
+            then cast(year(season_start_date) as varchar)
+        else cast(year(season_start_date) as varchar)
+             || '/' || right(cast(year(season_end_date) as varchar), 2)
     end as season_label
 from deduped

@@ -1,25 +1,21 @@
 name: football-data-pipeline
 
-# Runs the whole pipeline on a schedule and on demand:
-# ingest the live season, then dbt build (run + test), then generate docs.
+# Scheduled run of the real pipeline: restore yesterday's warehouse, ingest the
+# live season, dbt build (models, unit tests and data tests), export the marts,
+# and save the warehouse for tomorrow.
 #
-# The 2026/27 season is under way, so a scheduled run does real work: it picks up
-# newly finished matches and fact_standings (derived from finished results)
-# extends by a matchday. The two completed backfills (2024/25, 2025/26) are not
-# re-pulled here; they never change.
-#
-# One expected quirk: the status accepted_values test is warn-level, because the
-# free tier sometimes returns a kickoff timestamp instead of a lifecycle value in
-# that field. A warning there is normal; a stage failure would not be.
+# State lives in the Actions cache. Each successful run saves the DuckDB file
+# and the raw JSON cache under a new key; the next run restores the newest one.
+# A failed run saves nothing, so a bad day never overwrites a good warehouse.
+# If there's no cache (first run, or GitHub evicted it after 7 days without a
+# run), the bootstrap step backfills the completed seasons from the API first.
 
 on:
   schedule:
-    # 06:00 UTC daily. Only pulls the current season (~18 requests) at ~8/min,
-    # comfortably under the 10/min free-tier limit.
-    - cron: "0 6 * * *"
-  workflow_dispatch: {}   # manual "Run workflow" button
+    - cron: "0 6 * * *"   # 06:00 UTC daily, when no matches are in play
+  workflow_dispatch: {}
 
-# Don't let two scheduled runs overlap; the DuckDB file is single-writer.
+# One run at a time; the DuckDB file is single-writer.
 concurrency:
   group: football-data-pipeline
   cancel-in-progress: false
@@ -31,56 +27,79 @@ jobs:
   run-pipeline:
     runs-on: ubuntu-latest
     env:
-      # Comes from a GitHub repository secret. Not committed, never echoed, and
-      # GitHub masks it in logs. The ingestion code reads it from this env var.
       FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+      DBT_DUCKDB_PATH: ../data/football.duckdb
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: Set up Python
-        uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.11"
           cache: pip
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt
 
-      # The steps below run one at a time, each as its own process that opens
-      # and closes the DuckDB file before the next starts, so there's never more
-      # than one writer.
+      - name: Restore warehouse from the last successful run
+        id: restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            data/football.duckdb
+            data/raw/*.json
+          key: warehouse-${{ github.run_id }}
+          restore-keys: warehouse-
 
-      - name: Ingest live season (current 2026/27 leagues)
-        # Current season only (no --season). I don't re-pull the completed
-        # 2024/25 backfill on a schedule; it never changes, so fetching it every
-        # night would just waste API budget.
-        #
-        # On TLS: the client calls truststore.inject_into_ssl(), which uses the
-        # runner's OS trust store. ubuntu-latest ships the normal public CAs and
-        # has no corporate root, so this is just ordinary public-CA verification.
-        # If this step connects and gets 200s, TLS in CI is fine.
+      - name: Bootstrap completed seasons (only when there is no warehouse yet)
+        if: hashFiles('data/football.duckdb') == ''
+        run: |
+          python -m ingestion.run --season 2024
+          python -m ingestion.run --season 2025
+
+      - name: Ingest the live season
         run: python -m ingestion.run --refresh
 
-      - name: dbt build (run models and tests, fail on any failure)
+      - name: dbt build (fails the job on any test failure)
         working-directory: dbt
-        # dbt build runs each model then its tests in dependency order and exits
-        # non-zero if any test fails, which turns the job red. That's the whole
-        # "fail loudly" guarantee.
         run: dbt build --profiles-dir .
 
-      - name: Generate dbt docs (lineage + catalog)
+      - name: dbt docs
         working-directory: dbt
         run: dbt docs generate --profiles-dir .
 
-      - name: Upload dbt docs as an artifact
+      - name: Export marts to Parquet
+        run: python export_marts.py --out exports
+
+      - name: Last ingestion runs
+        run: >
+          python -c "import duckdb;
+          con = duckdb.connect('data/football.duckdb', read_only=True);
+          con.sql('select run_id, finished_at, status, season, rows_changed, rows_deleted
+          from raw._load_runs order by finished_at desc limit 5').show()"
+
+      - name: Save warehouse for the next run
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            data/football.duckdb
+            data/raw/*.json
+          key: warehouse-${{ github.run_id }}
+
+      - name: Upload marts (Parquet)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: marts-parquet
+          path: exports/*.parquet
+          retention-days: 14
+
+      - name: Upload dbt docs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: dbt-docs
           path: |
             dbt/target/index.html
             dbt/target/manifest.json
             dbt/target/catalog.json
+            dbt/target/run_results.json
           if-no-files-found: ignore

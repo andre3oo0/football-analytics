@@ -11,6 +11,7 @@ select
     competition_code,
     season_id,
     kickoff_utc,
+    kickoff_date,
     status,
     stage,
     group_name,
@@ -26,13 +27,14 @@ select
     home_score_ht,
     away_score_ht,
 
-    -- has_result means the match has a definitive outcome and should count
-    -- toward standings. FINISHED is the usual case; AWARDED is an officially
-    -- decided result (e.g. a forfeit with a set scoreline) and counts too,
-    -- otherwise a league table would come out wrong. Anything else (SCHEDULED,
-    -- postponed, ...) doesn't count.
+    -- A definitive outcome that counts toward standings. AWARDED is an
+    -- officially decided result (e.g. a forfeit with a set scoreline) and
+    -- counts like FINISHED. Scores are deliberately not part of this flag: a
+    -- result with missing scores should fail a test, not quietly drop out.
     (status in ('FINISHED', 'AWARDED'))                     as has_result,
     home_score_ft + away_score_ft                           as total_goals_ft,
+    -- Points come from the API's `winner`; win/draw/loss downstream come from
+    -- the scores. Two independent fields, so a test can check they agree.
     case when winner = 'HOME_TEAM' then 3
          when winner = 'DRAW'      then 1
          when winner = 'AWAY_TEAM' then 0

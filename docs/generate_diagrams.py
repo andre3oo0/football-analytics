@@ -56,10 +56,12 @@ LINEAGE_STYLE = {
 def build_lineage(m: dict) -> tuple[str, str]:
     nodes: dict[str, dict] = {}
 
-    for nid, s in m["sources"].items():
+    # Walk everything in sorted order: the manifest's own ordering differs
+    # between platforms, and the output must be byte-identical on CI.
+    for nid, s in sorted(m["sources"].items()):
         nodes[nid] = {"label": f'{s["source_name"]}.{s["name"]}', "kind": "source"}
 
-    for nid, n in m["nodes"].items():
+    for nid, n in sorted(m["nodes"].items()):
         rt = n["resource_type"]
         if rt == "seed":
             nodes[nid] = {"label": n["name"], "kind": "seed"}
@@ -74,13 +76,13 @@ def build_lineage(m: dict) -> tuple[str, str]:
             # bespoke singular tests only; the generic ones would swamp the picture
             nodes[nid] = {"label": n["name"], "kind": "test"}
 
-    edges = [
+    edges = sorted(
         (p, c)
         for c, parents in m["parent_map"].items()
         if c in nodes
         for p in parents
         if p in nodes
-    ]
+    )
 
     # longest-path depth, so every edge points strictly rightwards
     depth = {n: 0 for n in nodes}
@@ -194,21 +196,28 @@ ROW_H, HEAD_H, PAD_B = 20, 28, 8
 HEAD_FILL = {"dim": "#2f6f4f", "fact": "#1f4e79"}
 
 # Curated: position, and the columns worth showing. Keep the key columns first.
+# A composite grain is tagged PK on each of its columns.
 ERD_BOXES = {
     "dim_competitions": (470, 20, 240, "dim", [
-        ("competition_code", "PK"), ("competition_name", ""), ("competition_type", "")]),
-    "dim_seasons": (470, 250, 240, "dim", [
+        ("competition_code", "PK"), ("competition_name", "")]),
+    "dim_seasons": (470, 150, 240, "dim", [
         ("season_id", "PK"), ("competition_code", "FK"), ("season_label", ""),
         ("season_start_date", ""), ("season_end_date", "")]),
-    "dim_teams": (470, 470, 240, "dim", [
+    "dim_teams": (470, 330, 240, "dim", [
         ("team_id", "PK"), ("team_name", ""), ("tla", ""), ("area_name", "")]),
-    "fact_matches": (40, 140, 300, "fact", [
+    "dim_date": (470, 490, 240, "dim", [
+        ("date_day", "PK"), ("year / quarter / month", ""), ("day_name / is_weekend", "")]),
+    "fact_matches": (40, 60, 300, "fact", [
         ("match_id", "PK"), ("competition_code", "FK"), ("season_id", "FK"),
-        ("home_team_id", "FK"), ("away_team_id", "FK"), ("stage", ""),
-        ("status / matchday / winner", ""), ("scores + points (measures)", "")]),
-    "fact_standings": (840, 360, 300, "fact", [
-        ("standing_key", "PK"), ("competition_code", "FK"), ("season_id", "FK"),
-        ("team_id", "FK"), ("matchday", ""), ("played / won / drawn / lost", ""),
+        ("home_team_id", "FK"), ("away_team_id", "FK"), ("kickoff_date", "FK"),
+        ("stage / status / matchday / winner", ""), ("scores + points (measures)", "")]),
+    "fct_team_matches": (40, 330, 300, "fact", [
+        ("match_id", "PK FK"), ("team_id", "PK FK"), ("opponent_team_id", ""),
+        ("competition_code", "FK"), ("season_id", "FK"), ("kickoff_date", "FK"),
+        ("is_home / result", ""), ("goals + points (measures)", "")]),
+    "fact_standings": (840, 250, 300, "fact", [
+        ("competition_code", "PK FK"), ("season_id", "PK FK"), ("team_id", "PK FK"),
+        ("matchday", "PK"), ("as_of_date", "FK"), ("played / won / drawn / lost", ""),
         ("goals + points + position", "")]),
 }
 
@@ -219,9 +228,16 @@ ERD_RELS = [
     ("fact_matches", "season_id", "dim_seasons", "season_id", "r"),
     ("fact_matches", "home_team_id", "dim_teams", "team_id", "r"),
     ("fact_matches", "away_team_id", "dim_teams", "team_id", "r"),
+    ("fact_matches", "kickoff_date", "dim_date", "date_day", "r"),
+    ("fct_team_matches", "match_id", "fact_matches", "match_id", "v"),
+    ("fct_team_matches", "team_id", "dim_teams", "team_id", "r"),
+    ("fct_team_matches", "competition_code", "dim_competitions", "competition_code", "r"),
+    ("fct_team_matches", "season_id", "dim_seasons", "season_id", "r"),
+    ("fct_team_matches", "kickoff_date", "dim_date", "date_day", "r"),
     ("fact_standings", "competition_code", "dim_competitions", "competition_code", "l"),
     ("fact_standings", "season_id", "dim_seasons", "season_id", "l"),
     ("fact_standings", "team_id", "dim_teams", "team_id", "l"),
+    ("fact_standings", "as_of_date", "dim_date", "date_day", "l"),
     ("dim_seasons", "competition_code", "dim_competitions", "competition_code", "v"),
 ]
 
@@ -229,7 +245,7 @@ ERD_RELS = [
 def relationships_from_manifest(m: dict) -> set[tuple[str, str, str, str]]:
     """Every FK the model actually declares, from its `relationships` tests."""
     found = set()
-    for nid, n in m["nodes"].items():
+    for n in m["nodes"].values():
         meta = n.get("test_metadata") or {}
         if meta.get("name") != "relationships":
             continue
@@ -278,7 +294,7 @@ def build_erd() -> tuple[str, str]:
         x, y, w, *_ = ERD_BOXES[box]
         return x + w if side == "r" else x
 
-    W, H = 1180, 700
+    W, H = 1180, 630
     p: list[str] = []
     p.append(
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" '
@@ -336,21 +352,21 @@ def build_erd() -> tuple[str, str]:
             if i % 2 == 1:
                 p.append(f'<rect x="{x + 1}" y="{ry}" width="{w - 2}" height="{ROW_H}" '
                          f'fill="#f4f6f9"/>')
-            weight = "700" if tag == "PK" else "400"
-            colour = "#1f4e79" if tag == "FK" else "#222"
+            weight = "700" if "PK" in tag else "400"
+            colour = "#1f4e79" if "FK" in tag else "#222"
             p.append(
                 f'<text x="{x + 10}" y="{ry + 14}" fill="{colour}" font-weight="{weight}">'
                 f"{escape(name)}</text>"
             )
             if tag:
-                badge = "#2f6f4f" if tag == "PK" else "#1f4e79"
+                badge = "#2f6f4f" if "PK" in tag else "#1f4e79"
                 p.append(
                     f'<text x="{x + w - 10}" y="{ry + 14}" text-anchor="end" fill="{badge}" '
                     f'font-weight="700" font-size="11">{tag}</text>'
                 )
 
     p.append(
-        '<text x="40" y="660" fill="#555" font-size="12">'
+        '<text x="40" y="615" fill="#555" font-size="12">'
         "PK = primary key    FK = foreign key    "
         "lines: one dimension row -&gt; many fact rows    "
         "(fact_matches joins dim_teams twice: home and away)</text>"
@@ -363,12 +379,13 @@ def main() -> None:
     m = load_manifest()
 
     svg, summary = build_lineage(m)
-    (DOCS / "lineage_dag.svg").write_text(svg, encoding="utf-8")
+    # newline="\n" so the output is byte-identical on Windows and on CI.
+    (DOCS / "lineage_dag.svg").write_text(svg, encoding="utf-8", newline="\n")
     print(f"wrote docs/lineage_dag.svg  ({summary})")
 
     check_erd_against_manifest(m)
     svg, summary = build_erd()
-    (DOCS / "erd.svg").write_text(svg, encoding="utf-8")
+    (DOCS / "erd.svg").write_text(svg, encoding="utf-8", newline="\n")
     print(f"wrote docs/erd.svg          ({summary})")
 
 

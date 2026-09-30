@@ -1,5 +1,6 @@
 -- One row per team, straight from stg_teams. raw.teams already enforces the
--- team_id primary key, so there's nothing to dedup.
+-- team_id primary key, so there's nothing to dedup. Type 1: a rename or new
+-- crest overwrites the old values and no history is kept.
 
 select
     team_id,                   -- primary key (facts reference it)

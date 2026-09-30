@@ -1,92 +1,122 @@
 # Testing and quality
 
-Data quality is enforced two ways: dbt tests (which fail the build) and source
-freshness (which tells you how current the data is). `dbt build` runs every model
-and its tests together and exits non-zero if any test fails, so a data problem is
-loud rather than silent.
+Six layers, from the Python code to the published marts. `dbt build` runs the
+unit tests, data tests and models together and exits non-zero on any failure;
+CI runs every layer on each pull request.
 
-Current state: `dbt build` reports `PASS=73, ERROR=0`.
+## 1. pytest
 
-## Generic tests
+`tests/` covers the ingestion package without network access. The API client
+is given a fake session; the loader and the full run use a temporary DuckDB
+file and the committed fixture season.
 
-Declared in the `_*.yml` files next to the models.
-
-### Primary keys
-
-`unique` and `not_null` on every primary key:
-
-- `dim_competitions.competition_code`, `dim_teams.team_id`, `dim_seasons.season_id`
-- `fact_matches.match_id`, `fact_standings.standing_key`
-- the seed `seed_competitions.competition_code`
-
-### Foreign keys
-
-A `relationships` test on every foreign key, so every fact row must resolve to a
-real dimension row:
-
-- `fact_matches.competition_code` -> `dim_competitions.competition_code`
-- `fact_matches.season_id` -> `dim_seasons.season_id`
-- `fact_matches.home_team_id` -> `dim_teams.team_id`
-- `fact_matches.away_team_id` -> `dim_teams.team_id`
-- `fact_standings.competition_code` -> `dim_competitions.competition_code`
-- `fact_standings.season_id` -> `dim_seasons.season_id`
-- `fact_standings.team_id` -> `dim_teams.team_id`
-- `dim_seasons.competition_code` -> `dim_competitions.competition_code`
-
-### accepted_values
-
-On the enum-like columns:
-
-- `stg_matches.status`: the match lifecycle enum (`SCHEDULED`, `TIMED`, `IN_PLAY`, `PAUSED`, `FINISHED`, `SUSPENDED`, `POSTPONED`, `CANCELLED`, `AWARDED`) at **warn** severity
-- `stg_matches.stage`: `REGULAR_SEASON`
-- `stg_matches.winner`: `HOME_TEAM`, `AWAY_TEAM`, `DRAW`
-- `stg_matches.duration`: `REGULAR`, `EXTRA_TIME`, `PENALTY_SHOOTOUT`
-- `stg_standings.standing_type`: `TOTAL`, `HOME`, `AWAY`
-- `dim_competitions.competition_type` and the seed: `LEAGUE`, `TOURNAMENT`
-
-`stage` lists only the value it ever takes (`REGULAR_SEASON`) and fails the build
-on anything else — the right fail-loud behaviour for a stable field. `status` is
-different: it is a live, source-controlled field, and on the free tier the API
-sometimes returns junk in it (even a kickoff timestamp for future fixtures), so
-its check runs at `severity: warn` — unexpected values surface in the run output
-without failing the build. That is safe because nothing downstream trusts a raw
-status beyond `has_result` (FINISHED/AWARDED).
-
-Generic-test arguments are nested under `arguments:`, which is the form dbt 1.10+
-expects, so the build has no deprecation warnings.
-
-## Singular tests
-
-Bespoke SQL tests in `dbt/tests/`. Each returns the offending rows; the test
-fails if any come back.
-
-| Test | Checks |
+| File | Covers |
 |------|--------|
-| `assert_scores_never_negative` | No negative full-time or half-time scores in `fact_matches`. |
-| `assert_standings_played_equals_wdl` | In `fact_standings`, `played = won + drawn + lost`. |
-| `assert_standings_points_consistent` | In `fact_standings`, `points = won*3 + drawn`. |
-| `assert_standings_played_monotonic` | A team's cumulative `played` never decreases as matchday increases. |
+| `test_api_client.py` | 200s cached, cache hits make no request, no key and no cache fails, 429 with and without `Retry-After`, 5xx then 200, connection errors and timeouts retried, retries bounded, 404 raises `ResourceNotFound`, other 4xx not retried, an invalid body is rejected and not cached, an invalid cached file is rejected |
+| `test_validation.py` | the real fixtures pass; a matches body that is missing, null, empty, miscounted or has a match without an id fails; so do a miscounted teams body and standings without `season.id` |
+| `test_loader.py` | first load inserts everything; a reload is idempotent and keeps `_loaded_at`; a changed payload is rewritten and restamped; a match missing from the response is deleted; standings explode to one row per team per type; rows without a key are skipped; rollback discards the run |
+| `test_run.py` | a run over the fixtures loads and writes `raw._load_runs`, and a second run changes nothing; one bad file rolls back every endpoint; an unknown competition exits 2 |
 
-The last three are internal-consistency checks on the derived standings; if the
-derivation logic ever regresses, they catch it.
+```bash
+pytest
+ruff check .
+```
 
-## Source freshness
+`tests/fixtures/raw` holds real, minified responses for Premier League 2024/25.
+The same files let anyone run the dbt build without an API key.
 
-Defined on the `raw` source in `_staging__sources.yml`, using `_loaded_at` with
-`warn_after: 24h` and `error_after: 72h`. Run it with:
+## 2. dbt unit tests
+
+`dbt/models/_unit_tests.yml` runs models on hand-built inputs:
+
+- **`fact_standings_postponed_match_and_ties`**: six teams over three matchdays.
+  A matchday 2 game is played after matchday 3; the matchday 2 snapshot doesn't
+  include it and the postponed game first counts in the latest snapshot. It also
+  checks that a team with no game in a window still gets a row, and that teams
+  level on points, goal difference and goals scored share a position.
+- **`int_matches_awarded_counts_postponed_does_not`**: AWARDED has a result and
+  points; POSTPONED and SCHEDULED do not.
+- **`stg_matches_normalises_timestamp_status`**: a kickoff timestamp in
+  `status` becomes `SCHEDULED`, with the original kept in `status_raw`.
+
+## 3. Generic data tests
+
+Declared in the `_*.yml` files next to the models:
+
+- `unique` and `not_null` on every primary key, including the seed.
+- A `relationships` test on every foreign key: every fact to each of its
+  dimensions (including `dim_date`), `fct_team_matches` to `fact_matches`, and
+  `dim_seasons` to `dim_competitions`.
+- `unique_combination`, a local generic test in `dbt/tests/generic/`, on the
+  grain of `fct_team_matches` (match, team) and `fact_standings` (competition,
+  season, team, matchday).
+- `accepted_values` on `status`, `stage`, `winner`, `duration`, `standing_type`
+  and `fct_team_matches.result`. The lists hold the values seen in the data and
+  fail the build on anything new. `stage` accepts only `REGULAR_SEASON`.
+
+## 4. Singular tests
+
+SQL in `dbt/tests/`; each returns offending rows and fails if there are any.
+
+| Test | Catches |
+|------|---------|
+| `assert_scores_never_negative` | a negative full-time or half-time score |
+| `assert_results_have_scores` | a FINISHED or AWARDED match with a missing score or winner, e.g. after the API renames a score field and the staging cast produces nulls |
+| `assert_winner_matches_score` | the API's `winner` disagreeing with the full-time score in a match decided in normal time |
+| `assert_season_fixtures_complete` | missing or duplicated fixtures: a league of n teams must have n(n-1) fixtures, n-1 home and n-1 away per team, and 2(n-1) matchdays of n/2 fixtures |
+| `assert_season_attributes_consistent` | a season whose matches disagree on its start or end date, which `int_seasons` relies on |
+| `assert_standings_points_consistent` | `points <> 3 * won + drawn` at any snapshot. Points come from `winner` and W/D from the scores, so this compares two fields; it would also catch a points deduction |
+| `assert_standings_snapshots_move_forward` | an `as_of_date` or a team's `played` going backwards as the matchday rises |
+| `assert_standings_reconcile_with_endpoint` | the derived table disagreeing with the standings endpoint |
+
+### The reconciliation test
+
+For every season that has rows in `fact_standings` and in the endpoint, the
+test compares the latest derived snapshot with the latest TOTAL snapshot from
+the endpoint, team by team, on played, points, goal difference and goals
+scored. A team present on only one side also fails.
+
+The endpoint leaves AWARDED matches out of its table, while the leagues count
+them. There are three in the data: Union Berlin 0-2 Bochum (Bundesliga
+2024/25), Montpellier 0-2 Saint-Étienne (Ligue 1 2024/25) and Nantes 0-0
+Toulouse (Ligue 1 2025/26). The test subtracts each team's AWARDED results
+before comparing. Any other difference fails: a missed or double-counted result,
+a wrong snapshot date for the latest matchday, a points deduction.
+
+It assumes matches and standings come from the same ingestion run, which is the
+default.
+
+## 5. Contracts
+
+All seven marts have `contract: {enforced: true}` with a `data_type` for every
+column. dbt checks the model's output against the declared columns and types
+before building it and fails on any mismatch, so a column rename or type change
+in a mart has to be an explicit edit in `_marts__models.yml`.
+
+## 6. Source freshness
+
+Freshness is defined on `raw._load_runs`, using `finished_at` for successful
+runs: warn after 26 hours, error after 72. It measures whether ingestion is
+running. `_loaded_at` on the data tables only moves when content changes, so it
+would warn during an international break.
 
 ```bash
 cd dbt && dbt source freshness --profiles-dir .
 ```
 
-It measures how stale ingestion is, which is the signal the schedule cares about:
-if the scheduled pipeline stops refreshing, freshness degrades and it is visible.
+Neither workflow runs this; it is a manual check.
 
-## Running tests
+## What isn't tested
 
-```bash
-cd dbt
-dbt build --profiles-dir .   # models + tests
-dbt test  --profiles-dir .   # tests only
-dbt test --select fact_standings --profiles-dir .   # tests for one model
-```
+- The live API itself. pytest uses a fake session and CI uses fixtures, so an
+  API change surfaces first in the scheduled pipeline, through validation or
+  the data tests.
+- Only one season of fixtures runs in CI. The other leagues and seasons are
+  tested by the scheduled pipeline's `dbt build`.
+- `dim_date` and `dim_teams` attributes beyond their keys.
+- Head-to-head ordering and points deductions, which aren't modelled.
+- `export_marts.py` and `docs/generate_diagrams.py` have no unit tests. The
+  pipeline runs the export daily and CI runs the diagram script.
+- The incremental build is exercised in CI but only checked by the same data
+  tests as a full build; equality with a full refresh after a changed match was
+  checked by hand.

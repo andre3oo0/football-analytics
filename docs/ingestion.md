@@ -1,149 +1,164 @@
 # Ingestion
 
-The Python package under `ingestion/` fetches data from football-data.org,
-caches each response to disk, and loads it into the DuckDB `raw` schema. It is
-deliberately thin: it lands the untouched payload keyed by its natural key and
-leaves all interpretation to dbt.
+The `ingestion/` package fetches from football-data.org, validates and caches
+each response, and loads it into the DuckDB `raw` schema. It lands the payload
+keyed by its natural key and leaves interpretation to dbt.
 
 ## Modules
 
 | File | Responsibility |
 |------|----------------|
-| `config.py` | Competitions, endpoints, paths, and the rate-limit budget as plain data. |
-| `api_client.py` | The rate-limited, cache-first HTTP client, plus TLS handling. |
-| `loader.py` | The `raw` schema DDL and the upsert-by-natural-key load methods. |
-| `run.py` | The CLI that ties it together (`python -m ingestion.run`). |
+| `config.py` | Paths, API settings, the rate-limit budget, and `load_competitions()`. |
+| `validation.py` | Shape checks per endpoint; raises `InvalidResponse`. |
+| `api_client.py` | The rate-limited, cache-first HTTP client. |
+| `loader.py` | The raw DDL, the change-only upsert, and the run log. |
+| `run.py` | The CLI, `python -m ingestion.run`. |
 
-## config.py
+Everything logs through the `logging` module. Each line carries the run id,
+which is also the `run_id` in `raw._load_runs`.
 
-Holds constants only, no logic:
+## Competitions
 
-- `COMPETITIONS`: the five leagues (PL, PD, BL1, SA, FL1), each a small
-  dataclass of `code`, `name`, `competition_type`.
-- `ENDPOINTS`: `["teams", "matches", "standings"]`.
-- `BASE_URL`, `API_KEY_ENV_VAR`.
-- Rate-limit budget: `MIN_SECONDS_BETWEEN_REQUESTS = 7.5` (about 8/min against
-  the 10/min cap), `MAX_RETRIES = 5`, `BACKOFF_BASE_SECONDS = 5.0`.
-- Paths: `DATA_DIR`, `RAW_CACHE_DIR` (`data/raw`), `DEFAULT_DB_PATH`
-  (`data/football.duckdb`).
+`config.load_competitions()` reads `dbt/seeds/seed_competitions.csv`
+(`competition_code`, `competition_name`). The same seed builds
+`dim_competitions`, so adding a league is one row in that file. Endpoints per
+competition are `teams`, `matches` and `standings`.
 
-## api_client.py
+## The API client
 
-`FootballDataClient` is responsible for two guarantees.
+### Rate limit and retries
 
-### Never get IP-banned
+The free tier allows 10 requests a minute. The client leaves at least 7.5
+seconds between real network calls (about 8 a minute). It retries, up to
+`MAX_RETRIES` (5) attempts:
 
-- A minimum gap of 7.5 seconds is enforced between real network calls, so the
-  rate never exceeds roughly 8 per minute.
-- On HTTP 429 it backs off, preferring the server's `Retry-After` header and
-  falling back to exponential backoff (`BACKOFF_BASE_SECONDS * 2^attempt`), up
-  to `MAX_RETRIES`.
-- 5xx responses are retried with the same exponential backoff. Other 4xx (a bad
-  key, an unknown competition) raise immediately; there is no point retrying.
+- HTTP 429, waiting for `Retry-After` plus one second when the header is
+  present, otherwise exponential backoff;
+- 5xx responses;
+- connection errors and timeouts (30-second request timeout).
 
-### Never hit the API when it isn't needed
+Backoff is `5s * 2^attempt` plus up to 25% random jitter. A 404 raises
+`ResourceNotFound`, which the run treats as "not available" and skips. Any
+other 4xx (a bad key, a season the free tier doesn't expose) raises at once.
+When retries run out the client raises `RateLimitError`.
 
-- Every response is written to `data/raw/` as JSON before it is returned, so the
-  loader always reads a persisted file.
-- Reads are cache-first: if the cache file exists and `force_refresh` is false,
-  the cached JSON is returned and no network call happens. This makes local
-  re-runs free and keeps you safely under the rate limit during development.
+### Cache
 
-### Cache file naming
+Every response is cached as
+`<cache-dir>/<competition>_<endpoint>[_<season>].json`, for example
+`PL_matches.json` for the current season and `PL_matches_2024.json` for
+2024/25. Reads are cache-first: if the file exists and `--refresh` isn't set, no
+request is made. With no cached file and no API key, the fetch fails.
 
-`data/raw/<competition>_<endpoint>[_<season>].json`, for example
-`PL_matches.json` for the current season and `PL_matches_2024.json` for the
-2024/25 backfill. The season suffix means a historical pull never overwrites the
-live cache.
+A fetched response is validated before it is written, so a bad body is never
+cached. The write goes to a temporary file in the same folder and is renamed
+over the target with `os.replace`, so an interrupted write can't leave a
+truncated file. Cached files are validated again on read.
+
+### Validation
+
+`validation.py` checks each 200 response before it is cached or loaded:
+
+| Endpoint | Checks |
+|----------|--------|
+| teams | `teams` is a non-empty list; `count` (if present) equals its length; every team has an `id` |
+| matches | `matches` is a non-empty list; `resultSet.count` (if present) equals its length; every match has an `id` |
+| standings | `standings` is a list; `season.id` is present |
+
+Without these checks, a 200 with an unexpected body would load zero rows and
+report success, and cache-first mode would keep serving the bad file.
 
 ### TLS
 
-On construction the client calls `truststore.inject_into_ssl()` so verification
-uses the OS trust store. This keeps verification on behind an SSL-inspecting
-proxy (which presents a locally trusted root CA that certifi does not know) and
-is a harmless no-op on a normal network or CI runner. It never disables
-verification.
+`truststore` makes TLS verify against the operating system's trust store in
+place of certifi's bundle. If truststore is missing or fails to inject, the
+client logs it and falls back to certifi.
 
-## loader.py
+## The raw schema
 
-`RawLoader` owns a DuckDB connection and the upsert logic.
+`RawLoader.create_schema()` creates four tables. The data tables hold the
+typed natural key, the untouched JSON payload, `_source_file` (the cache file
+name) and `_loaded_at`.
 
-### The DDL is the idempotency guarantee
+| Table | Primary key |
+|-------|-------------|
+| `raw.teams` | `team_id` |
+| `raw.matches` | `match_id` |
+| `raw.standings` | `competition_code, season_id, team_id, matchday, standing_type` |
+| `raw._load_runs` | `run_id` |
 
-Each raw table declares its natural key as a `PRIMARY KEY`, so a duplicate is
-impossible at the storage level, not just by convention:
+Column-level detail is in [data-dictionary.md](data-dictionary.md).
 
-- `raw.teams` — `PRIMARY KEY (team_id)`
-- `raw.matches` — `PRIMARY KEY (match_id)`
-- `raw.standings` — `PRIMARY KEY (competition_code, season_id, team_id, matchday, standing_type)`
+### Change-only upsert
 
-Every raw row is the natural key (typed, for the constraint) plus the untouched
-payload as `JSON`, plus `_source_file` and `_loaded_at`.
+Loads upsert on the primary key with `INSERT ... ON CONFLICT DO UPDATE`, so
+reloading never duplicates a row. Before the upsert, incoming rows whose payload
+is identical to the stored one are dropped. A row is therefore rewritten only
+when its content changed, and `_loaded_at` means "when this content last
+changed". `fact_standings` uses that as its incremental watermark.
 
-### Upsert semantics
+`_loaded_at` is naive UTC: the run's start time, identical for every row a run
+writes.
 
-Loads use `INSERT ... ON CONFLICT (<pk>) DO UPDATE`. Re-loading a record replaces
-the existing row, so:
+Rows go into DuckDB as one JSON string unpacked with `json_each` in SQL. Binding
+Python lists or using `executemany` is row-at-a-time in DuckDB and far slower.
 
-- Running ingestion twice yields the same raw state, never duplicates.
-- A match that moves from `SCHEDULED` to `FINISHED` overwrites its old row.
-- There is exactly one current row per natural key. Raw does not keep history or
-  SCDs. The only time series we want (standings by matchday) is derived
-  downstream in `fact_standings`.
+### Deletes
 
-### Standings are exploded, all types kept
+A matches response is the full fixture list for its season. After the upsert,
+any match stored for that competition and season that is missing from the
+response is deleted, and the count is logged. Teams are never deleted: a
+relegated team is still referenced by earlier seasons.
 
-A standings response is one snapshot at `season.currentMatchday` and can contain
-several tables: `TOTAL` and, mid-season, `HOME`/`AWAY` (and one table per group
-where a competition has groups). The loader lands every type the source returns
-(hence `standing_type` in the key) so raw stays a faithful copy. `currentMatchday`
-can be null (e.g. before a competition starts); the PK column is `NOT NULL`, so
-it is coalesced to 0.
+### Standings
 
-## run.py — CLI reference
+A standings response is one snapshot at `season.currentMatchday` and can hold
+several tables: TOTAL and, mid-season, HOME and AWAY. The loader keeps every
+type, one row per team per type. A null `currentMatchday` (before a season
+starts) is stored as 0. Rows missing a team id, season id or table type are
+skipped, counted and logged.
+
+### The run log
+
+`raw._load_runs` gets one row per run, written after the run commits or rolls
+back: start and finish time (UTC), `status` (`success` or `failed`), the season
+and refresh flag, endpoints loaded, rows received, changed and deleted, and the
+failure messages. For a failed run the counts are zero, because nothing was
+committed. dbt's source freshness check reads this table.
+
+## run.py
 
 ```
-python -m ingestion.run [--db PATH] [--refresh]
-                        [--competitions CODE ...]
-                        [--endpoints EP ...]
+python -m ingestion.run [--db PATH] [--cache-dir DIR] [--refresh]
+                        [--competitions CODE ...] [--endpoints EP ...]
                         [--season YEAR]
 ```
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--db` | `data/football.duckdb` | Path to the DuckDB file to load into. |
-| `--refresh` | off | Re-fetch from the API even if a cached response exists. |
-| `--competitions` | all six | Subset of competition codes (e.g. `PL SA`). |
-| `--endpoints` | teams matches standings | Subset of endpoints. |
-| `--season` | current | Season start year (e.g. `2024` for 2024/25). Uses the API's `?season=` filter and a season-scoped cache filename. |
+| `--db` | `data/football.duckdb` | DuckDB file to load into. |
+| `--cache-dir` | `data/raw` | Folder of cached responses. `tests/fixtures/raw` loads the committed fixture season. |
+| `--refresh` | off | Fetch from the API even when a cached response exists. |
+| `--competitions` | every seed row | Subset of codes, e.g. `PL SA`. |
+| `--endpoints` | `teams matches standings` | Subset of endpoints. |
+| `--season` | the API's current season | Start year, e.g. `2024` for 2024/25. Sent as `?season=` and used in the cache file name. |
 
-The API key is read from `FOOTBALL_DATA_API_KEY` (loaded from `.env` if present)
-and is never passed on the command line.
+The API key comes from `FOOTBALL_DATA_API_KEY`, read from `.env` if present and
+otherwise from the environment. It is never a command-line argument.
 
-### What a run prints
+### One transaction per run
 
-A header (db path, mode, season, endpoints, whether a key is present), one line
-per competition/endpoint showing rows upserted, and the final `raw` row counts.
-This makes a run self-verifying.
+The run opens a transaction, loads every competition and endpoint, and commits
+only if all of them succeeded. If any endpoint fails, the others still run so
+every failure is reported, then everything rolls back, the failure is recorded
+in `raw._load_runs`, and the process exits 1. Re-running is cheap: every
+response that succeeded is already cached.
 
-### Failure handling
+| Exit code | Meaning |
+|-----------|---------|
+| 0 | every endpoint loaded (404s skipped) and committed |
+| 1 | at least one endpoint failed; nothing committed |
+| 2 | an unknown competition code was passed |
 
-Each competition/endpoint is wrapped so a single failure is reported and skipped
-rather than aborting the whole run, but the process exits non-zero if anything
-failed. That way it does as much as it can and still fails loudly for CI.
-
-One exception: an HTTP 404 is treated as "resource not available" and skipped
-without failing the run. An endpoint can legitimately have no data (for example
-a competition with no standings table for a given season), and nothing
-downstream depends on a missing one. Real errors (bad key, 5xx, network) still
-fail loudly.
-
-## Seasons currently loaded
-
-- Live 2026/27 for all five leagues (default pull).
-- Completed 2024/25 for the five leagues (backfilled, teams + matches only).
-- Completed 2025/26 for the five leagues (backfilled, teams + matches only).
-
-The two completed backfills (2024/25 and 2025/26) are what give `fact_standings`
-finished results to work from. CI only pulls the live season; it does not re-pull
-the frozen backfills, which cannot change.
+A run logs its settings, one line per competition and endpoint (received,
+changed, deleted), and the final raw row counts.

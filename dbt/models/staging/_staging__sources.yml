@@ -10,14 +10,17 @@ sources:
     database: football          # DuckDB names the catalog after the file stem
     schema: raw
 
-    # Freshness here measures how stale the ingestion is (the scheduled pipeline
-    # should refresh the live leagues regularly). _loaded_at is set by the loader.
-    freshness:
-      warn_after: {count: 24, period: hour}
-      error_after: {count: 72, period: hour}
-    loaded_at_field: _loaded_at
-
     tables:
+      # Freshness is measured on the run log, not on the data tables: _loaded_at
+      # only moves when a payload changes, and during an international break
+      # nothing changes for two weeks even though ingestion is healthy.
+      - name: _load_runs
+        description: "One row per ingestion run: status, row counts, failures."
+        loaded_at_field: finished_at
+        freshness:
+          warn_after: {count: 26, period: hour}
+          error_after: {count: 72, period: hour}
+          filter: "status = 'success'"
       - name: teams
         description: "One row per team, keyed by team_id."
         columns:
