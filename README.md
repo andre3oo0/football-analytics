@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚽ Football data pipeline
+# Football data pipeline
 
 **Five European leagues, three seasons, rebuilt every night into a tested star schema.**
 
@@ -34,16 +34,16 @@ league tables the API publishes.
 
 | | |
 |---|---|
-| 🏟️ **Leagues** | PL, PD, BL1, SA, FL1, listed once in [`seed_competitions.csv`](dbt/seeds/seed_competitions.csv) |
-| 📅 **Seasons** | 2024/25 and 2025/26 (complete), 2026/27 (live) |
-| 🌙 **Runs** | 02:00 SAST nightly, started by cron-job.org ([why](#-the-nightly-run)) |
-| 🦆 **Warehouse** | one DuckDB file, carried between runs in the GitHub Actions cache |
-| 🧱 **Marts** | 4 dimensions and 3 facts, each with an enforced contract |
-| ✅ **Tests** | pytest, dbt unit tests, data tests and a reconciliation against the API's tables |
-| 📦 **Output** | Parquet files per mart, uploaded as a build artifact every night |
-| 📖 **dbt docs** | rebuilt nightly and published at [andre3oo0.github.io/football-analytics](https://andre3oo0.github.io/football-analytics/) |
+| **Leagues** | PL, PD, BL1, SA, FL1, listed once in [`seed_competitions.csv`](dbt/seeds/seed_competitions.csv) |
+| **Seasons** | 2024/25 and 2025/26 (complete), 2026/27 (live) |
+| **Runs** | 02:00 SAST nightly, started by cron-job.org ([why](#the-nightly-run)) |
+| **Warehouse** | one DuckDB file, carried between runs in the GitHub Actions cache |
+| **Marts** | 4 dimensions and 3 facts, each with an enforced contract |
+| **Tests** | pytest, dbt unit tests, data tests and a reconciliation against the API's tables |
+| **Output** | Parquet files per mart, uploaded as a build artifact every night |
+| **dbt docs** | rebuilt nightly and published at [andre3oo0.github.io/football-analytics](https://andre3oo0.github.io/football-analytics/) |
 
-## 🗺️ Architecture
+## Architecture
 
 ```mermaid
 flowchart LR
@@ -76,15 +76,15 @@ out of date):
 
 ![dbt lineage](docs/lineage_dag.svg)
 
-## 🌙 The nightly run
+## The nightly run
 
 ```mermaid
 flowchart LR
-    CRON["⏰ cron-job.org<br/>02:00 SAST"]:::trigger
+    CRON["cron-job.org<br/>02:00 SAST"]:::trigger
     DISPATCH["GitHub API<br/>workflow_dispatch"]:::gh
     RUN["pipeline.yml<br/>restore → ingest → dbt build → export → save"]:::run
     CACHE[("Actions cache<br/>warehouse-run_id")]:::cache
-    SCHED["⏳ GitHub schedule<br/>fallback, hours late"]:::fallback
+    SCHED["GitHub schedule<br/>fallback, hours late"]:::fallback
     DECIDE{"tonight's run<br/>already succeeded?"}:::decide
 
     CRON --> DISPATCH --> RUN
@@ -133,7 +133,7 @@ warehouse in place.
 > Setting it up on a fork, including the token and the cron-job.org request,
 > is step by step in [docs/orchestration.md](docs/orchestration.md#setting-up-the-external-trigger).
 
-## 🧱 The model
+## The model
 
 ![Star schema](docs/erd.svg)
 
@@ -153,7 +153,7 @@ hand until then. It is built incrementally, one season at a time. The mechanism
 is in [docs/data-model.md](docs/data-model.md) and the reasoning in
 [docs/design-decisions.md](docs/design-decisions.md).
 
-## 🚀 Quickstart
+## Quickstart
 
 No API key needed. One real season (Bundesliga 2024/25) is committed in
 `tests/fixtures/raw`:
@@ -172,17 +172,17 @@ With a free football-data.org API key in `.env` (copy `.env.example`),
 `--season 2024` / `--season 2025` add the completed ones. Every command is in
 [docs/running-the-project.md](docs/running-the-project.md).
 
-## ✅ What is tested
+## What is tested
 
 | Layer | What it covers |
 |-------|----------------|
-| 🐍 **pytest** | API client retries, 404s and invalid bodies; response validation; the loader's idempotency, change-only upserts, deletes and rollback; a full ingestion run over the fixtures |
-| 🧪 **dbt unit tests** | standings on hand-built data: a postponed match, a round postponed whole, a game brought forward, shared positions, a team with no game in a window; AWARDED and live matches; status normalisation |
-| 🔑 **generic tests** | keys, every foreign key, enum values, the grain of each fact |
-| 📐 **singular tests** | a complete double round-robin, `winner` agreeing with the score, scores present for every result, snapshots moving forward with no gaps in the matchdays, plausible goal totals |
-| 📜 **contracts** | column names and types on all seven marts |
-| ⚖️ **reconciliation** | the derived table against the API's standings, team by team, for every season |
-| 🚨 **anomaly guards** | ingestion refuses a response that would delete more than 5 stored matches; each nightly run warns if the restored warehouse is more than a day old |
+| **pytest** | API client retries, 404s and invalid bodies; response validation; the loader's idempotency, change-only upserts, deletes and rollback; a full ingestion run over the fixtures |
+| **dbt unit tests** | standings on hand-built data: a postponed match, a round postponed whole, a game brought forward, shared positions, a team with no game in a window; AWARDED and live matches; status normalisation |
+| **generic tests** | keys, every foreign key, enum values, the grain of each fact |
+| **singular tests** | a complete double round-robin, `winner` agreeing with the score, scores present for every result, snapshots moving forward with no gaps in the matchdays, plausible goal totals |
+| **contracts** | column names and types on all seven marts |
+| **reconciliation** | the derived table against the API's standings, team by team, for every season |
+| **anomaly guards** | ingestion refuses a response that would delete more than 5 stored matches; each nightly run warns if the restored warehouse is more than a day old |
 
 CI runs all of it on every pull request, with no API key. Details in
 [docs/testing-and-quality.md](docs/testing-and-quality.md).
@@ -195,7 +195,7 @@ CI runs all of it on every pull request, with no API key. Details in
 > the leagues do, and the reconciliation test subtracts their contribution
 > before comparing with the endpoint.
 
-## ⚠️ Known limitations
+## Known limitations
 
 - The date each matchday snapshot is taken at comes from a heuristic: the last
   game within 3 days of the round's median kickoff date.
@@ -216,7 +216,7 @@ CI runs all of it on every pull request, with no API key. Details in
 The fuller list, with consequences, is in
 [docs/design-decisions.md](docs/design-decisions.md#known-limitations).
 
-## 📚 Documentation
+## Documentation
 
 | Doc | What's in it |
 |-----|--------------|
@@ -232,7 +232,7 @@ The fuller list, with consequences, is in
 
 [CONTRIBUTING.md](CONTRIBUTING.md) covers making a change.
 
-## 🗂️ Repo layout
+## Repo layout
 
 ```
 ingestion/            fetch, validate, cache, load the raw schema
