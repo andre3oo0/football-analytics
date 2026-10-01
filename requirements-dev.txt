@@ -1,5 +1,5 @@
 -r requirements.txt
 
-pytest>=8.0,<10.0
-ruff>=0.6,<1.0
-uv>=0.12,<1.0               # regenerates and checks the lock files
+pytest>=9.1.1,<10.0
+ruff>=0.16.9,<1.0
+uv>=0.12.19,<1.0               # regenerates and checks the lock files
