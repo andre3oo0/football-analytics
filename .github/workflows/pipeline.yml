@@ -114,12 +114,33 @@ jobs:
             echo "::warning title=Stale warehouse::The previous successful ingestion was ${hours} hours ago (${state}). At least one nightly run was missed."
           fi
 
-      - name: Ingest the live season
-        run: python -m ingestion.run --refresh
-
-      - name: dbt build (fails the job on any test failure)
+      # Ingest the live season, then build. The standings endpoint sometimes
+      # lags its own match results for a few minutes right after the evening's
+      # games, so a build started at 02:00 can fail the reconciliation test on a
+      # handful of teams whose latest result isn't in the endpoint table yet. On
+      # a build failure we pause, re-fetch just the standings (matches are the
+      # trusted side and stay put), and build again. A real disagreement -- a
+      # points deduction, a missed or double-counted result -- doesn't change
+      # when standings are re-fetched, so it still fails the job once the
+      # attempts run out. Tune the attempt count and pause with the env vars.
+      - name: Ingest the live season and build
         working-directory: dbt
-        run: dbt build --profiles-dir .
+        env:
+          MAX_ATTEMPTS: "3"
+          SETTLE_SECONDS: "600"
+        run: |
+          ( cd .. && python -m ingestion.run --refresh )
+          attempt=1
+          until dbt build --profiles-dir .; do
+            if [ "$attempt" -ge "$MAX_ATTEMPTS" ]; then
+              echo "::error title=dbt build failed::Still failing after ${MAX_ATTEMPTS} attempts; not a transient standings lag."
+              exit 1
+            fi
+            echo "::warning title=Build retry::Attempt ${attempt}/${MAX_ATTEMPTS} failed; re-ingesting standings after ${SETTLE_SECONDS}s."
+            sleep "$SETTLE_SECONDS"
+            ( cd .. && python -m ingestion.run --refresh --endpoints standings )
+            attempt=$((attempt + 1))
+          done
 
       - name: dbt docs (single-page site)
         working-directory: dbt

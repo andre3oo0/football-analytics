@@ -95,6 +95,15 @@ a wrong snapshot date for the latest matchday, a points deduction.
 It assumes matches and standings come from the same ingestion run, which is the
 default.
 
+The standings endpoint can lag its own match results for a few minutes just
+after the evening's games, so a nightly build started at 02:00 occasionally
+fails this test on the few teams whose latest result isn't in the endpoint table
+yet. The pipeline absorbs that: on a build failure it waits, re-fetches only the
+standings (matches stay put as the trusted side), and builds again, up to three
+attempts. A real disagreement -- a points deduction, a missed or double-counted
+result -- survives the re-fetch and still fails the job once the attempts run
+out, so the test keeps its full strength.
+
 ## 5. Contracts
 
 All seven marts have `contract: {enforced: true}` with a `data_type` for every
